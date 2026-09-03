@@ -171,3 +171,4 @@ TRXUSDT DOGEUSDT XRPUSDT DOTUSDT LINKUSDT
 - 本项目是**前端 UI 原型**,所有登录、注册、下单、资金操作均为前端模拟,**无后端服务**
 - Binance WebSocket 依赖网络可达,某些地区可能需要代理
 - 仅在 `max-w-md` 宽度下做了精心设计,大于此宽度的桌面端仅居中显示
+我觉得可以
