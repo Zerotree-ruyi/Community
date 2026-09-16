@@ -262,6 +262,21 @@ pwd
 
 ### 3.2 上传代码(选一种)
 
+> 📦 上传完后,代码最终落在 `/www/wwwroot/exchange-admin/admin/`,**关键文件/目录** 你应该看到:
+>
+> | 路径 | 是什么 | 后面哪一步会用到 |
+> |---|---|---|
+> | `admin/server.ts` | 后端入口 | §3.6 启动测试 / §3.7 PM2 |
+> | `admin/package.json` | Node 依赖清单 | §3.4 `npm install` |
+> | `admin/.env.example` | 环境变量样例 | §3.5 复制成 `.env` |
+> | `admin/schema.sql` | 业务表结构 | §3.3 由 init-db.sh 自动导入 |
+> | `admin/schema-admin.sql` | 管理员表结构 | §3.3 由 init-db.sh 自动导入 |
+> | `admin/migrations/*.sql` | 增量迁移脚本 | §3.3 由 init-db.sh 自动应用 |
+> | **`admin/scripts/init-db.sh`** | **建库一键脚本**(本项目自带,你不用自己写) | §3.3 跑它 |
+> | `admin/scripts/init-db.mjs` | 同上,Node.js 版本(可选) | — |
+>
+> 👆 **如果你看不到 `admin/scripts/init-db.sh` 这个文件**,说明你上传的压缩包/git clone 出问题了,先回 §0.3 检查「要上传哪些」。
+
 #### 方式 A — Git 拉取(推荐)
 
 在宝塔终端里继续:
@@ -273,7 +288,9 @@ ls
 # 应看到:admin  src  public  package.json  DEPLOY_BAOTA.md ...
 cd admin
 ls
-# 应看到:server.ts  package.json  src  schema.sql  migrations  scripts ...
+# 应看到:server.ts  package.json  src  schema.sql  migrations  scripts  ...
+ls scripts/
+# ★ 应看到 init-db.sh 和 init-db.mjs 这两个文件 ★
 pwd
 # 应输出:/www/wwwroot/exchange-admin/admin   ← 这个路径,后面 PM2 要用
 ```
@@ -283,26 +300,34 @@ pwd
 1. 宝塔左侧菜单 → **文件** → 顶部路径栏输入 `/www/wwwroot/exchange-admin` → 回车
 2. 看到空目录就对了(就是你 §3.1 mkdir 出来的)
 3. 点左上 **上传** 按钮 → 选 **上传文件**(不是上传目录)→ 选本地打包好的 `admin.zip`
-4. 上传完,**双击** `admin.zip` 进去看里面有什么(应该是 `admin/server.ts` `admin/package.json` ...)
+4. 上传完,**双击** `admin.zip` 进去看里面有什么(应该是 `admin/server.ts` `admin/package.json` `admin/scripts/init-db.sh` ...)
 5. 点顶部路径栏右边 **解压** 按钮(或者右键 `admin.zip` → 解压)→ 解压到 **当前目录**
 6. 解压后,顶部路径栏回到 `/www/wwwroot/exchange-admin`,文件列表里应该多出一个 `admin/` 文件夹
-7. **点进 `admin/`** 看一眼,确认里面有 `server.ts`、`package.json`、`schema.sql`、`migrations/` 等
+7. **点进 `admin/`** → 再点进 `scripts/`,**确认看到 `init-db.sh` 文件**(没看到这个脚本就到不了 §3.3)
 
-最终路径必须是 `/www/wwwroot/exchange-admin/admin/` — **多一层 admin/ 是因为仓库根目录就叫 Community,解压后自然带了 admin/ 这一层**(或者 git clone 之后你 `cd admin` 也是这个效果)。
+最终路径必须是 `/www/wwwroot/exchange-admin/admin/scripts/init-db.sh` — **多一层 admin/ 是因为仓库根目录就叫 Community,解压后自然带了 admin/ 这一层**(或者 git clone 之后你 `cd admin` 也是这个效果)。
 
-**❌ 错误示范**(会导致后面 PM2 找不到 server.ts):
+**❌ 错误示范**(会导致后面 PM2 找不到 server.ts / init-db.sh):
 ```
-/www/wwwroot/exchange-admin/server.ts        ← 少了一层 admin/
-/www/wwwroot/exchange-admin/admin.zip       ← 解压完忘了点进去
+/www/wwwroot/exchange-admin/server.ts                          ← 少了一层 admin/
+/www/wwwroot/exchange-admin/admin.zip                         ← 解压完忘了点进去
+/www/wwwroot/exchange-admin/admin/  (没有 scripts 目录)        ← 你传错包了,只传了部分文件
 ```
 
 ### 3.3 导入数据库表结构(填上 §2.2 建的空库)
 
-> 🎯 **这一步把 §2.2 建的 `zero` 空库填上表**。脚本 `init-db.sh` 在我们刚才上传的代码包里 `scripts/` 目录下,直接 SSH 跑就行。
+> 🎯 **这一步把 §2.2 建的 `zero` 空库填上表**。跑 §3.2 上传进来的 **`admin/scripts/init-db.sh`** 这个脚本就行(脚本是项目自带的,你不用自己写代码)。
 
-宝塔终端:
+脚本完整路径:
+```
+/www/wwwroot/exchange-admin/admin/scripts/init-db.sh
+```
+
+跑法:宝塔终端
 ```bash
 cd /www/wwwroot/exchange-admin/admin
+ls scripts/init-db.sh
+# ★ 必须先看到这一行,输出 init-db.sh 才能继续 ★(没看到就回 §3.2 重传)
 chmod +x scripts/init-db.sh
 
 # 用法:跟 §2.2 宝塔里建库的 4 个值保持完全一致
