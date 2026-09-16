@@ -17,6 +17,14 @@
                     │  ├─ admin/server.ts          │
                     │  └─ 数据库 zero              │
                     │     用户 zero / 密码 zh123456 │
+                    └─────────────┬────────────────┘
+                                  │ 每天 mysqldump via SSH
+                                  ▼
+                    ┌──────────────────────────────┐
+                    │  C 台 异地备份 (C.C.C.C)     │
+                    │  只装 SSH + crontab + 磁盘   │
+                    │  /backup/zero/{daily,weekly, │
+                    │   monthly}                   │
                     └──────────────────────────────┘
 ```
 
@@ -24,6 +32,7 @@
 |---|---|---|---|---|
 | **A 台 前台** | 静态站点 | `13.213.80.180` | Nginx / Node.js(build 用) | 80, 443 |
 | **B 台 后台+DB** | API + 数据库 | `3.1.38.13` | Nginx / Node.js / PM2 / MySQL | 3001(PM2),3306(MySQL 仅本地),80(宝塔面板) |
+| **C 台 异地备份** | 数据库快照 | `C.C.C.C`(自填,**异地机房**) | SSH server + crontab | 22(SSH) |
 
 ---
 
@@ -537,6 +546,340 @@ tail -f /www/wwwlogs/admin.access.log
 
 ---
 
+## 🛟 第 9 步:C 台 — 数据库异地备份(A、B 全挂也保数据)
+
+> **目标**:即使 A 台(13.213.80.180)和 B 台(3.1.38.13)同时宕机/被销毁/数据被勒索加密,你的数据库完整快照仍在第三台机器上,几分钟就能拉起来。
+
+### 9.1 架构示意
+
+```
+                    ┌────────────────────────┐
+   用户浏览器 ───►   │ A 台 前台 13.213.80.180│
+                    └───────────┬────────────┘
+                                │ /api/*
+                                ▼
+                    ┌────────────────────────┐
+                    │ B 台 后台 3.1.38.13    │
+                    │  ├─ PM2 (3001)         │
+                    │  └─ MySQL zero/zero    │◄────── mysqldump
+                    └────────────────────────┘  SSH 22        ▲
+                                                              │ 每天定时拉
+                                                              │
+                                            ┌─────────────────┴──────────┐
+                                            │ C 台 异地备份 C.C.C.C       │
+                                            │  ├─ 仅装:SSH server + 磁盘  │
+                                            │  └─ /backup/zero/           │
+                                            │     ├─ daily/  保留 30 天   │
+                                            │     ├─ weekly/ 保留 12 个月 │
+                                            │     └─ monthly/保留 永久     │
+                                            └────────────────────────────┘
+```
+
+### 9.2 C 台选型建议
+
+| 项 | 推荐 | 说明 |
+|---|---|---|
+| 地域 | **跟 A、B 不同机房/不同服务商**(同城异机房或异城) | 真·异地容灾;同机房断电/火灾一样挂 |
+| 配置 | 1 核 1G / 40G 系统盘 + 大容量数据盘(>=100G) | 数据库 dump 很小,但建议留余量 |
+| 系统 | CentOS 7+ / Ubuntu 20+ | 跟 A、B 一致最好,宝塔通用 |
+| 装机组件 | **只装 SSH 服务 + crontab + 宝塔面板**(可选) | 不需要装 MySQL、不需要装 PM2、不需要装 Nginx |
+| 公网 IP | `C.C.C.C`(你自填,文档里都替换成这个) | 需要能被 B 台 SSH 进去 |
+
+> 📌 C 台**不需要任何业务组件**,纯当"数据保险柜"。这意味着 C 台几乎 0 攻击面,被入侵概率极低。
+
+### 9.3 C 台要做的事(只做一次)
+
+#### 9.3.1 装宝塔(可选,纯为运维方便)
+
+```bash
+ssh root@C.C.C.C
+wget -O install.sh http://download.bt.cn/install/install-ubuntu_6.0.sh && sudo bash install.sh ed8484bec
+# 或 CentOS:yum install -y wget && wget -O install.sh http://download.bt.cn/install/install_6.0.sh && sh install.sh ed8484bec
+```
+
+> 宝塔面板用来**看磁盘、看 crontab、看备份目录**很方便;不装也完全 OK。
+
+#### 9.3.2 建备份目录结构
+
+```bash
+ssh root@C.C.C.C
+mkdir -p /backup/zero/{daily,weekly,monthly}
+chmod 700 /backup/zero
+```
+
+#### 9.3.3 在 C 台生成 SSH 密钥对(用于免密登录 B 台)
+
+```bash
+ssh root@C.C.C.C
+ssh-keygen -t ed25519 -N '' -f /root/.ssh/zero_backup -C "zero-db-backup"
+# 整个过程按 3 次回车,不设密码
+```
+
+把公钥拷到 B 台:
+```bash
+# 在 C 台执行,把公钥写进 B 台 root 的 authorized_keys
+ssh-copy-id -i /root/.ssh/zero_backup.pub root@3.1.38.13
+# 首次会问 B 台 root 密码,输入即可
+```
+
+验证免密通:
+```bash
+ssh -i /root/.ssh/zero_backup root@3.1.38.13 'echo ok && date && hostname'
+# 应直接打印 ok + 时间,不问密码
+```
+
+#### 9.3.4 在 B 台创建**只读**的 MySQL 备份账号
+
+> 备份不需要 INSERT/UPDATE/DELETE 权限,只给 SELECT + LOCK TABLES + RELOAD + REPLICATION CLIENT,这样即使 SSH 泄露也只能读不能写。
+
+SSH 进 B 台:
+```bash
+ssh root@3.1.38.13
+mysql -uroot -p   # 输入宝塔 root 密码
+```
+
+在 MySQL shell 里执行:
+```sql
+CREATE USER 'zero_backup'@'127.0.0.1' IDENTIFIED BY 'BkP@ss_2026!Strong';
+GRANT SELECT, LOCK TABLES, RELOAD, REPLICATION CLIENT, EVENT, TRIGGER ON *.* TO 'zero_backup'@'127.0.0.1';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+> 密码用你自己的强密码替换 `BkP@ss_2026!Strong`。
+
+测试:
+```bash
+mysql -h127.0.0.1 -uzero_backup -p'BkP@ss_2026!Strong' zero -e "SHOW TABLES;"
+# 应列出 members / orders / withdrawals / ... 等表
+```
+
+#### 9.3.5 在 C 台创建备份脚本
+
+在 C 台写 `/usr/local/bin/backup-zero-db.sh`:
+
+```bash
+ssh root@C.C.C.C
+cat > /usr/local/bin/backup-zero-db.sh <<'SCRIPT_EOF'
+#!/usr/bin/env bash
+# ============================================================================
+# 异地备份脚本 — C 台从 B 台拉 MySQL dump
+# 用法: /usr/local/bin/backup-zero-db.sh [daily|weekly|monthly]
+# =========================================================================: /root/.ssh/zero_backup
+#   B 台 SSH 主机与 SSH 用户
+B_HOST="3.1.38.13"
+B_SSH_USER="root"
+B_SSH_KEY="/root/.ssh/zero_backup"
+B_DB_USER="zero_backup"
+B_DB_PASS="BkP@ss_2026!Strong"   # 改成 B 台 §9.3.4 里设的密码
+B_DB_NAME="zero"
+#   本地备份目录
+LOCAL_BASE="/backup/zero"
+# ----------------------------------------------------------------------------
+
+set -euo pipefail
+
+MODE="${1:-daily}"
+case "$MODE" in
+  daily|weekly|monthly) ;;
+  *) echo "用法: $0 [daily|weekly|monthly]"; exit 1 ;;
+esac
+
+DEST="$LOCAL_BASE/$MODE"
+mkdir -p "$DEST"
+
+TS=$(date +%Y%m%d_%H%M%S)
+DAY_OF_WEEK=$(date +%u)   # 1=周一 ... 7=周日
+DAY_OF_MONTH=$(date +%d)
+
+FILE="$DEST/${B_DB_NAME}_${MODE}_${TS}.sql.gz"
+TMP_FILE="/tmp/${B_DB_NAME}_${TS}.sql.gz"
+
+echo "[$(date '+%F %T')] [$MODE] 开始从 $B_HOST 拉取 $B_DB_NAME → $FILE"
+
+# ── 核心一步:在 B 台跑 dump,管道直传,不落中间盘 ──
+ssh -i "$B_SSH_KEY" \
+    -o StrictHostKeyChecking=accept-new \
+    -o ConnectTimeout=15 \
+    "$B_SSH_USER@$B_HOST" \
+    "mysqldump -h127.0.0.1 -u'$B_DB_USER' -p'$B_DB_PASS' \
+        --single-transaction --quick --routines --triggers \
+        --events --hex-blob \
+        --default-character-set=utf8mb4 \
+        '$B_DB_NAME'" \
+  | gzip -9 > "$TMP_FILE"
+
+if [[ ! -s "$TMP_FILE" ]]; then
+  echo "[$(date '+%F %T')] [$MODE] ❌ 备份文件为空,SSH 失败或 mysqldump 报错" >&2
+  rm -f "$TMP_FILE"
+  exit 2
+fi
+
+mv "$TMP_FILE" "$FILE"
+SIZE=$(du -h "$FILE" | awk '{print $1}')
+echo "[$(date '+%F %T')] [$MODE] ✅ 备份完成: $FILE ($SIZE)"
+
+# ── 保留策略 ──
+case "$MODE" in
+  daily)
+    # 保留 30 天
+    find "$DEST" -maxdepth 1 -name "${B_DB_NAME}_daily_*.sql.gz" -mtime +30 -delete
+    ;;
+  weekly)
+    # 保留 365 天(12 个月多一点)
+    find "$DEST" -maxdepth 1 -name "${B_DB_NAME}_weekly_*.sql.gz" -mtime +365 -delete
+    ;;
+  monthly)
+    # 永久保留,只在每月 1 号跑
+    if [[ "$DAY_OF_MONTH" != "01" ]]; then
+      rm -f "$FILE"
+      echo "[$(date '+%F %T')] [monthly] 不是月初,删除本次备份"
+    fi
+    ;;
+esac
+
+echo "[$(date '+%F %T')] [$MODE] 当前目录剩余:"
+ls -lh "$DEST" | tail -5
+SCRIPT_EOF
+
+chmod +x /usr/local/bin/backup-zero-db.sh
+```
+
+**验证脚本能跑**(手动触发一次 daily):
+```bash
+/usr/local/bin/backup-zero-db.sh daily
+# 应输出:
+#   [2026-09-16 03:00:01] [daily] 开始从 3.1.38.13 拉取 zero → ...
+#   [2026-09-16 03:00:08] [daily] ✅ 备份完成: /backup/zero/daily/zero_daily_20260916_030001.sql.gz (2.3M)
+```
+
+检查文件:
+```bash
+ls -lh /backup/zero/daily/
+# 应该看到 zero_daily_xxx.sql.gz
+
+# 顺便看一眼 dump 是否完整(不是 0 字节、不是报错)
+zcat /backup/zero/daily/zero_daily_*.sql.gz | head -20
+# 应看到 -- MySQL dump ... CREATE TABLE members ...
+```
+
+#### 9.3.6 在 C 台配 crontab
+
+```bash
+ssh root@C.C.C.C
+crontab -e
+```
+
+加 3 行(每天/每周一/每月 1 号 各自拉一份):
+```cron
+# 每天 03:00 — 增量级 dump,保留 30 天
+0 3 * * *   /usr/local/bin/backup-zero-db.sh daily   >> /var/log/zero-backup.log 2>&1
+
+# 每周一 03:30 — 周级 dump,保留 365 天
+30 3 * * 1  /usr/local/bin/backup-zero-db.sh weekly  >> /var/log/zero-backup.log 2>&1
+
+# 每月 1 号 04:00 — 月级 dump,永久保留
+0 4 1 * *   /usr/local/bin/backup-zero-db.sh monthly >> /var/log/zero-backup.log 2>&1
+```
+
+查看定时是否生效:
+```bash
+crontab -l | grep backup
+tail -20 /var/log/zero-backup.log
+```
+
+### 9.4 数据丢失后的恢复流程(灾难演练)
+
+#### 9.4.1 场景:B 台整机挂了 / 数据被勒索 / 误删库
+
+**第 1 步**:在新的 B 台(可以是任何一台新机器)装 MySQL + 建库:
+```bash
+ssh root@新-B台-IP
+yum install -y mysql-server  # 或 apt install mariadb-server
+systemctl start mysql
+mysql -uroot -p
+```
+
+```sql
+CREATE DATABASE `zero` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'zero'@'localhost' IDENTIFIED BY 'zh123456';
+GRANT ALL PRIVILEGES ON `zero`.* TO 'zero'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+**第 2 步**:从 C 台拉最新备份回 B 台:
+```bash
+ssh root@C.C.C.C
+# 看最近一份 daily
+ls -lt /backup/zero/daily/ | head -3
+
+# 拷贝到本地 /tmp
+scp /backup/zero/daily/zero_daily_20260916_030001.sql.gz root@新-B台-IP:/tmp/
+```
+
+**第 3 步**:在新 B 台恢复:
+```bash
+ssh root@新-B台-IP
+cd /tmp
+gunzip -c zero_daily_20260916_030001.sql.gz | mysql -uroot -p zero
+# 输入 root 密码,导入
+
+# 验证数据
+mysql -uroot -p zero -e "SELECT COUNT(*) FROM members; SELECT COUNT(*) FROM orders;"
+```
+
+**第 4 步**:把恢复后的 B 台跟 A 台重新接上(走 §3 重新部署后端 + §4.5 A 台 Nginx 反代)。
+
+> 💡 **数据丢失量估算**:
+> - 每天 03:00 备份 → 最坏丢失**当天凌晨 3 点之后**的数据
+> - 如果配了 Binlog(下条 §9.5 推荐),可缩到**秒级**
+
+#### 9.4.2 场景:C 台也挂了 / C 台数据被破坏
+
+- 周级 + 月级备份在 C 台自己也是冗余的(daily/weekly/monthly 分目录互不影响)
+- 如果 C 台是云服务商,买它的「自动快照」再覆盖一层(每台云厂商都有)
+- 最坏情况下:用 B 台宝塔自带的「数据库备份」也能恢复(见 §7.3)
+
+### 9.5 加分项:B 台开 Binlog,缩到秒级丢失
+
+宝塔 → MySQL 设置 → 配置文件,加:
+```ini
+[mysqld]
+server-id        = 1
+log_bin          = /www/server/data/mysql-bin
+binlog_format    = ROW
+binlog_expire_logs_seconds = 604800   # 保留 7 天
+```
+
+重启 MySQL(宝塔面板里点重启)。
+
+之后 B 台崩溃,可用 C 台的 `mysqldump` 拿到**最近的快照**,再用 B 台的 binlog 补到**崩溃前 1 秒**:
+```bash
+# 在新 B 台导入 dump
+mysql -uroot -p zero < zero_daily_xxx.sql
+# 再补 binlog
+mysqlbinlog --stop-datetime='2026-09-16 14:23:45' /www/server/data/mysql-bin.* | mysql -uroot -p zero
+```
+
+> 这层**强烈推荐加上**,配置 1 行,保命。
+
+### 9.6 异地备份 Checklist(打勾确认)
+
+- [ ] C 台是**异地**机房(跟 A、B 不同服务商 / 不同城市)
+- [ ] C 台系统装好,SSH 服务已开
+- [ ] `/backup/zero/{daily,weekly,monthly}` 三个目录建好,`chmod 700`
+- [ ] C 台 SSH 公钥已加到 B 台 `~/.ssh/authorized_keys`
+- [ ] B 台有 `zero_backup@127.0.0.1` 这个 MySQL 只读账号
+- [ ] `/usr/local/bin/backup-zero-db.sh` 脚本已上传到 C 台,`chmod +x`
+- [ ] 手动跑一次 `backup-zero-db.sh daily`,看到 ✅
+- [ ] crontab 已加 3 行(daily/weekly/monthly)
+- [ ] `/var/log/zero-backup.log` 有最近的成功记录
+- [ ] **演练过一次恢复**:拿 C 台 dump → 新机器 → 导入 → 验证表行数
+- [ ] (推荐)B 台 MySQL 已开 binlog
+
+---
+
 ## 📋 服务器清单备忘(本项目定制)
 
 | 服务器 | 公网 IP | 数据库 | 账号 | 密码 | 关键端口 |
@@ -544,6 +887,7 @@ tail -f /www/wwwlogs/admin.access.log
 | **A 台 前台** | `13.213.80.180` | — | — | — | 80 / 443 |
 | **B 台 后台** | `3.1.38.13` | `zero` | `zero` | `zh123456` | 80 / 443 / 3001 |
 | MySQL | 仅 B 台本地 | `zero` | `zero` | `zh123456` | 3306(**不开公网**) |
+| **C 台 异地备份** | `C.C.C.C`(自填) | — | — | — | 22(SSH) |
 
 ---
 
@@ -558,13 +902,23 @@ B 台 (3.1.38.13):
   /www/wwwroot/exchange-admin/admin/        # 后端源码
   /www/wwwroot/exchange-admin/admin/.env    # 数据库密码(chmod 600!)
   /www/wwwlogs/admin.access.log             # Nginx 访问日志
-  /www/backup/database/                     # 数据库自动备份
+  /www/backup/database/                     # 数据库自动备份(宝塔自带)
+  /www/server/data/mysql-bin.*              # Binlog(开 §9.5 后才有)
+
+C 台 (C.C.C.C,异地备份):
+  /backup/zero/daily/                       # 日级 dump,保留 30 天
+  /backup/zero/weekly/                      # 周级 dump,保留 365 天
+  /backup/zero/monthly/                     # 月级 dump,永久保留
+  /usr/local/bin/backup-zero-db.sh          # 备份脚本
+  /var/log/zero-backup.log                  # crontab 运行日志
+  /root/.ssh/zero_backup                    # SSH 私钥(chmod 600!)
 ```
 
 ---
 
 ## 🎯 部署 Checklist(完成后逐条打勾)
 
+### 主部署
 - [ ] B 台 MySQL 已建库 `zero`,账号 `zero`/`zh123456`,权限=本地服务器
 - [ ] B 台执行 `./scripts/init-db.sh --name zero --user zero --pass zh123456`,表已建
 - [ ] B 台 `.env` 已写入 5 个 DB_* + PORT=3001
@@ -575,6 +929,18 @@ B 台 (3.1.38.13):
 - [ ] A 台 Nginx 配置已加 `location /api/ { proxy_pass http://3.1.38.13:80/api/; }`
 - [ ] A 台 `curl http://13.213.80.180/api/health` 返回 200(说明前后台贯通)
 - [ ] 浏览器访问 `http://13.213.80.180` 看到登录页
+
+### 异地备份(§9)
+- [ ] C 台是**异地**机房,系统装好
+- [ ] C 台 `/backup/zero/{daily,weekly,monthly}` 三目录已建
+- [ ] C 台 SSH 公钥已加到 B 台 `~/.ssh/authorized_keys`
+- [ ] B 台有 `zero_backup@127.0.0.1` 这个 MySQL 只读账号
+- [ ] C 台 `/usr/local/bin/backup-zero-db.sh` 已配置并 `chmod +x`
+- [ ] C 台手动跑一次 `backup-zero-db.sh daily` 看到 ✅
+- [ ] C 台 crontab 已加 3 行(daily/weekly/monthly)
+- [ ] C 台 `/var/log/zero-backup.log` 有最近的成功记录
+- [ ] **做过一次恢复演练**:拿 C 台 dump → 新机器 → 导入 → 验证
+- [ ] (推荐)B 台 MySQL 已开 binlog
 
 ---
 
