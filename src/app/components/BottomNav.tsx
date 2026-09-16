@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, TrendingUp, PieChart, Zap, User } from 'lucide-react';
+import { Home, TrendingUp, PieChart, User } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 export function BottomNav() {
@@ -10,7 +10,6 @@ export function BottomNav() {
     { path: '/', icon: Home, label: t('nav.home') },
     { path: '/market', icon: TrendingUp, label: t('nav.market') },
     { path: '/orders', icon: PieChart, label: t('nav.orders') },
-    { path: '/flash', icon: Zap, label: t('nav.flash') },
     { path: '/profile', icon: User, label: t('nav.profile') },
   ];
 

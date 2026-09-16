@@ -1,13 +1,15 @@
-import { Headphones, ShieldCheck, CreditCard, FileText, Wallet, TrendingUp, Globe } from 'lucide-react';
+import { Headphones, ShieldCheck, CreditCard, FileText, TrendingUp, Globe } from 'lucide-react';
 import bitcoinLogo from 'figma:asset/3391a7389925b393a8af2bd8e4e6eca0fe64b272.png';
 import { Link } from 'react-router-dom';
 import Slider from 'react-slick';
 import 'slick-carousel/slick/slick.css';
 import '../../styles/slick.css';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { LanguageSelector } from './LanguageSelector';
+import { CryptoLogo } from './CryptoLogo';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useLeverage } from '../contexts/LeverageContext';
+import { MARKET_COINS, MarketCoin } from '../data/marketConfig';
 
 interface HotCoin {
   name: string;
@@ -38,6 +40,8 @@ function useRealtimePrice(symbol: string) {
   const [positive, setPositive] = useState<boolean>(true);
   const [sellPrice, setSellPrice] = useState<string>('--');
   const [buyPrice, setBuyPrice] = useState<string>('--');
+  const [rawPrice, setRawPrice]   = useState<number | null>(null); // 用于排序
+  const [rawChange, setRawChange] = useState<number | null>(null); // 涨跌幅百分比数值
 
   useEffect(() => {
     const wsSymbol = symbol.toLowerCase();
@@ -51,7 +55,6 @@ function useRealtimePrice(symbol: string) {
       const isPositive = priceChange >= 0;
 
       setPrice(currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-
       setChange(`${isPositive ? '+' : ''}${changePercent.toFixed(2)}%`);
       setPositive(isPositive);
 
@@ -59,6 +62,10 @@ function useRealtimePrice(symbol: string) {
       const spread = currentPrice * 0.0001; // 0.01% 点差
       setSellPrice((currentPrice - spread).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
       setBuyPrice((currentPrice + spread).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+      // 排序用原始数值
+      setRawPrice(currentPrice);
+      setRawChange(changePercent);
     };
 
     ws.onerror = () => {
@@ -69,7 +76,7 @@ function useRealtimePrice(symbol: string) {
     return () => ws.close();
   }, [symbol]);
 
-  return { price, change, positive, sellPrice, buyPrice };
+  return { price, change, positive, sellPrice, buyPrice, rawPrice, rawChange };
 }
 
 // 热门币种卡片
@@ -96,61 +103,164 @@ function HotCoinCard({ coin }: { coin: HotCoin }) {
   );
 }
 
-// 加密货币列表项
-function CryptoListItem({ crypto, leverage, t, onRoute }: { crypto: CryptoData; leverage: number; t: (key: string) => string; onRoute: string }) {
-  const { price, change, positive, sellPrice, buyPrice } = useRealtimePrice(crypto.symbol);
+// 行情表格行(首页 / 行情页共享数据)
+
+// 行情表格行(首页 / 行情页共享数据)
+function MarketTableRow({ coin, price, change, positive }: {
+  coin: MarketCoin;
+  price: string;
+  change: string;
+  positive: boolean;
+}) {
 
   return (
-    <div className="mb-2.5 bg-gradient-to-br from-gray-800/40 to-gray-900/40 rounded-lg p-2.5 border border-gray-700/30">
-      {/* Header: Name + Badge */}
-      <Link to={onRoute} className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold hover:text-[#c4f82a] transition-colors">
-            {crypto.name}<span className="text-gray-500">/{crypto.pair}</span>
-          </span>
-          {(crypto.name === 'BTC' || crypto.name === 'BNB') && (
-            <span className="bg-[#c4f82a] text-black text-[9px] font-bold px-1.5 py-0.5 rounded">{leverage}X</span>
-          )}
-        </div>
-        <span className="text-gray-400 text-xs">{t('home.spread')}:50.0</span>
-      </Link>
-
-      {/* Buy/Sell Price Boxes */}
-      <div className="grid grid-cols-2 gap-2 mb-2">
-        <Link to={onRoute} className="bg-gradient-to-br from-red-900/40 to-red-950/40 border border-red-800/50 rounded-lg p-1.5 text-left hover:from-red-900/60 hover:to-red-950/60 transition-all">
-          <div className="text-red-400 text-base font-bold mb-0.5">{sellPrice}</div>
-          <div className="text-red-400/80 text-[10px]">{t('trading.sell')}</div>
-        </Link>
-
-        <Link to={onRoute} className="bg-gradient-to-br from-green-900/40 to-green-950/40 border border-green-800/50 rounded-lg p-1.5 text-left hover:from-green-900/60 hover:to-green-950/60 transition-all">
-          <div className="text-green-400 text-base font-bold mb-0.5">{buyPrice}</div>
-          <div className="text-green-400/80 text-[10px]">{t('trading.buy')}</div>
-        </Link>
-      </div>
-
-      {/* Footer: Balance + Change */}
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-gray-500">{t('home.change')}</span>
-        <div className={`flex items-center gap-1 ${positive ? 'text-green-400' : 'text-red-400'}`}>
-          <TrendingUp className="w-3 h-3" />
-          <span className="font-medium">{change}</span>
+    <Link
+      to={`/trading?symbol=${coin.key.toLowerCase()}`}
+      className="grid grid-cols-12 items-center py-3 px-3 border-b border-gray-800 hover:bg-gray-800/40 transition-colors"
+    >
+      {/* 币种 */}
+      <div className="col-span-4 flex items-center gap-3 min-w-0">
+        <CryptoLogo src={coin.logo} name={coin.key} />
+        <div className="min-w-0">
+          <div className="text-base text-white truncate">{coin.key}</div>
+          <div className="text-xs text-gray-500 truncate">{coin.name}</div>
         </div>
       </div>
-    </div>
+      {/* 最新价 */}
+      <div className="col-span-4 pl-[60px] text-left text-base text-white">
+        <span>{price}</span>
+      </div>
+      {/* 涨跌幅 */}
+      <div className={`col-span-4 text-right text-sm ${positive ? 'text-green-400' : 'text-red-400'}`}>
+        <span>{change}</span>
+      </div>
+    </Link>
   );
 }
+
+// 排序箭头 ▲▼
+function SortArrows({ active, dir, muted }: { active: boolean; dir: 'asc' | 'desc'; muted?: boolean }) {
+  const baseColor = muted ? 'text-gray-600' : active ? 'text-[#c4f82a]' : 'text-gray-400';
+  return (
+    <span className={`inline-flex flex-col leading-none ${baseColor}`} aria-hidden>
+      <span className={`text-[8px] ${active && dir === 'asc' ? 'opacity-100' : 'opacity-50'}`}>▲</span>
+      <span className={`text-[8px] ${active && dir === 'desc' ? 'opacity-100' : 'opacity-50'}`}>▼</span>
+    </span>
+  );
+}
+
+// 单个币种行 — 数据由父级 HomePage 通过 props 传入 (合并 WS 模式)
 
 export function HomePage() {
   const [showLanguageSelector, setShowLanguageSelector] = useState(false);
   const { t } = useLanguage();
   const { leverage } = useLeverage();
 
+  // 排序状态
+  const [sortKey, setSortKey] = useState<'price' | 'change' | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // 排序逻辑
+  const handleSort = (key: 'price' | 'change') => {
+    if (sortKey === key) {
+      if (sortDir === 'desc') setSortDir('asc');
+      else { setSortKey(null); setSortDir('desc'); }
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  // === 实时价格 — 用 Binance 合并 stream 一条 WS 拿全部 22 个 (同 MarketPage 模式) ===
+  const dataMapRef = useRef<Record<string, {
+    price: number; change: number; positive: boolean;  // 原始数
+  }>>({});
+  const loadedSetRef = useRef<Set<string>>(new Set());
+  const [, forceUpdate] = useState(0);
+
+  useEffect(() => {
+    // 重置
+    dataMapRef.current = {};
+    loadedSetRef.current = new Set();
+
+    // 22 个币种合成一个 stream URL
+    const streams = MARKET_COINS
+      .map(c => {
+        const ws = c.symbol.replace('BINANCE:', '').replace('FX:', '').toLowerCase();
+        if (!ws || c.symbol.startsWith('FX:')) return null;
+        return `${ws}@ticker`;
+      })
+      .filter(Boolean)
+      .join('/');
+
+    if (!streams) return;
+
+    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        const data = msg.data;
+        if (!data || !data.s) return;
+        const prev = dataMapRef.current[data.s];
+        const next = {
+          price: parseFloat(data.c),
+          change: parseFloat(data.P),
+          positive: parseFloat(data.P) >= 0,
+        };
+        if (prev?.price === next.price && prev.change === next.change) return;
+        dataMapRef.current[data.s] = next;
+        loadedSetRef.current.add(data.s);
+        forceUpdate(n => n + 1);
+      } catch {}
+    };
+    return () => { try { ws.close(); } catch {} };
+  }, []);
+
+  // 计算排序后的币种列表
+  const sortedCoins = (() => {
+    if (!sortKey) return MARKET_COINS;
+    const data = dataMapRef.current;
+    const arr = [...MARKET_COINS];
+    arr.sort((a, b) => {
+      const aKey = a.symbol.replace('BINANCE:', '').replace('FX:', '').toUpperCase();
+      const bKey = b.symbol.replace('BINANCE:', '').replace('FX:', '').toUpperCase();
+      const av = data[aKey]?.[sortKey];
+      const bv = data[bKey]?.[sortKey];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+    return arr;
+  })();
+
+  // 把原始数字格式化成字符串 (同 MarketPage PriceOnly)
+  const formatPrice = (p: number) => {
+    if (p >= 1000) return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (p >= 1) return p.toFixed(2);
+    return p.toFixed(4);
+  };
+  const formatChange = (cp: number, positive: boolean) =>
+    `${positive ? '+' : ''}${cp.toFixed(2)}%`;
+
+  // 单个币种行数据 helper
+  const getRowData = (coin: MarketCoin) => {
+    const wsKey = coin.symbol.replace('BINANCE:', '').replace('FX:', '').toUpperCase();
+    const data = dataMapRef.current[wsKey];
+    const loaded = loadedSetRef.current.has(wsKey);
+    return {
+      price: data ? formatPrice(data.price) : '--',
+      change: data ? formatChange(data.change, data.positive) : '--',
+      positive: data?.positive ?? true,
+      loaded,
+    };
+  };
+
   const features = [
     { icon: Headphones, label: t('home.contactSupport'), key: 'contactSupport', color: 'from-yellow-400 to-yellow-600' },
     { icon: ShieldCheck, label: t('home.security'), key: 'security', color: 'from-green-400 to-green-600' },
     { icon: CreditCard, label: t('home.quickDeposit'), key: 'quickDeposit', color: 'from-orange-400 to-orange-600' },
     { icon: FileText, label: t('home.regulatory'), key: 'regulatory', color: 'from-blue-400 to-blue-600' },
-    { icon: Wallet, label: t('home.loan'), key: 'loan', color: 'from-yellow-500 to-yellow-700', badge: 'HOT' },
   ];
 
   // 热门币种配置 - 使用 Binance WebSocket 格式
@@ -255,7 +365,7 @@ export function HomePage() {
 
       {/* Features Grid */}
       <div className="px-6 mb-8">
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           {features.map((feature, idx) => {
             const Icon = feature.icon;
 
@@ -263,7 +373,7 @@ export function HomePage() {
               return (
                 <a
                   key={idx}
-                  href="https://google.com"
+                  href="https://t.me/your_support"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex flex-col items-center gap-2"
@@ -280,7 +390,6 @@ export function HomePage() {
               'security': '/security',
               'quickDeposit': '/deposit',
               'regulatory': '/regulatory',
-              'loan': '/loan'
             };
 
             const route = routeMap[feature.key];
@@ -325,20 +434,40 @@ export function HomePage() {
         </div>
       </div>
 
-      {/* Crypto List */}
-      <div className="px-4">
-        {cryptos.map((crypto, idx) => {
-          const route = crypto.name === 'EUR' ? '/forex-trading' : '/trading';
-          return (
-            <CryptoListItem
-              key={idx}
-              crypto={crypto}
-              leverage={leverage}
-              t={t}
-              onRoute={route}
-            />
-          );
-        })}
+      {/* Market Table — 币种 / 最新价 / 涨跌幅 */}
+      <div className="px-4 mb-6">
+        <div className="bg-gray-800/40 rounded-xl border border-gray-700/50 overflow-hidden">
+          {/* 表头 — 价格 / 涨跌幅 可点击排序 */}
+          <div className="grid grid-cols-12 py-3 px-3 bg-gray-800/60 border-b border-gray-700/50 text-xs text-gray-400 uppercase">
+            <div className="col-span-4">币种</div>
+            <button
+              onClick={() => handleSort('price')}
+              className="col-span-4 pl-[60px] text-left flex items-center gap-1 hover:text-white transition-colors"
+            >
+              <span>最新价格</span>
+              <SortArrows active={sortKey === 'price'} dir={sortDir} />
+            </button>
+            <button
+              onClick={() => handleSort('change')}
+              className="col-span-4 text-right flex items-center justify-end gap-1 hover:text-white transition-colors"
+            >
+              <SortArrows active={sortKey === 'change'} dir={sortDir} />
+              <span>涨跌幅</span>
+            </button>
+          </div>
+          {sortedCoins.map(coin => {
+            const d = getRowData(coin);
+            return (
+              <MarketTableRow
+                key={coin.key}
+                coin={coin}
+                price={d.price}
+                change={d.change}
+                positive={d.positive}
+              />
+            );
+          })}
+        </div>
       </div>
 
       {/* Language Selector Modal */}

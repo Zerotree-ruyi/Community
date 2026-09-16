@@ -1,194 +1,88 @@
-// TradingView Widget 组件 - 显示实时加密货币价格和图表
+/**
+ * TradingView 图表 — 直接拼 widgetembed URL,带 studies(MACD 等)
+ *
+ * URL 模板:
+ *   https://s.tradingview.com/widgetembed/?...&studies=...#{"symbol":"BINANCE:BTCUSDT.P",...}
+ *
+ *  - BINANCE:BTCUSDT   现货 spot
+ *  - BINANCE:BTCUSDT.P USDT-margined 永续合约(我们用这个)
+ *
+ *  studies 同时放在 hash 配置(JSON 数组)和 URL 查询参数里。
+ */
 import { useEffect, useRef } from 'react';
 
-interface TradingViewWidgetProps {
-  symbol: string;  // 例如: "BINANCE:BTCUSDT"
-  width?: string | number;
-  height?: string | number;
+interface Props {
+  symbol: string;          // 例如 "BINANCE:BTCUSDT.P"
+  height?: number;
   interval?: string;
-  timezone?: string;
   theme?: 'light' | 'dark';
   locale?: string;
-  toolbar_bg?: string;
-  enable_publishing?: boolean;
   hide_top_toolbar?: boolean;
-  hide_legend?: boolean;
-  save_image?: boolean;
-  details?: boolean;
-  hotlist?: boolean;
-  calendar?: boolean;
-  show_popup?: boolean;
-  popup_width?: string | number;
-  popup_height?: string | number;
-}
-
-declare global {
-  interface Window {
-    TradingView?: {
-      widget: new (config: Record<string, unknown>) => { remove: () => void };
-    };
-  }
+  studies?: string[];      // 例如 ["MACD@tv-basicstudies"]
 }
 
 export function TradingViewWidget({
   symbol,
-  width = '100%',
-  height = 400,
+  height = 420,
   interval = '60',
-  timezone = 'Etc/UTC',
   theme = 'dark',
   locale = 'en',
-  toolbar_bg = '#1a1f2e',
-  enable_publishing = false,
   hide_top_toolbar = false,
-  hide_legend = false,
-  save_image = true,
-  details = false,
-  hotlist = false,
-  calendar = false,
-  show_popup = false,
-  popup_width = '900',
-  popup_height = '405',
-}: TradingViewWidgetProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const widgetRef = useRef<{ remove: () => void } | null>(null);
+  studies = ['MACD@tv-basicstudies'],
+}: Props) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // 动态加载 TradingView widget 脚本
-    const scriptId = 'tradingview-widget-script';
+    if (!containerRef.current) return;
 
-    const loadWidget = () => {
-      if (containerRef.current && window.TradingView) {
-        // 清理旧组件
-        if (widgetRef.current) {
-          widgetRef.current.remove();
-        }
-        containerRef.current.innerHTML = '';
-
-        // 创建新组件
-        const widget = new window.TradingView.widget({
-          symbol: symbol,
-          width: width,
-          height: height,
-          interval: interval,
-          timezone: timezone,
-          theme: theme,
-          style: '1',
-          locale: locale,
-          toolbar_bg: toolbar_bg,
-          enable_publishing: enable_publishing,
-          hide_top_toolbar: hide_top_toolbar,
-          hide_legend: hide_legend,
-          save_image: save_image,
-          details: details,
-          hotlist: hotlist,
-          calendar: calendar,
-          show_popup: show_popup,
-          popup_width: popup_width,
-          popup_height: popup_height,
-          container_id: containerRef.current.id,
-        });
-
-        widgetRef.current = widget;
-      }
+    const config = {
+      symbol,
+      frameElementId: `tv_${Math.random().toString(36).slice(2, 8)}`,
+      interval,
+      save_image: '1',
+      studies,                       // 数组形式放在 hash
+      theme,
+      style: '1',
+      timezone: 'Etc/UTC',
+      studies_overrides: '{}',
+      hide_top_toolbar: hide_top_toolbar ? '1' : '0',
+      utm_source: 'localhost',
+      utm_medium: 'widget',
+      utm_campaign: 'chart',
+      utm_term: symbol,
+      'page-uri': typeof window !== 'undefined' ? window.location.href : '',
     };
 
-    if (!document.getElementById(scriptId)) {
-      const script = document.createElement('script');
-      script.id = scriptId;
-      script.src = 'https://s3.tradingview.com/tv.js';
-      script.async = true;
-      script.onload = loadWidget;
-      document.head.appendChild(script);
-    } else {
-      loadWidget();
-    }
+    const iframeId = config.frameElementId;
+    const wrapper = containerRef.current;
+
+    // URL 查询参数里的 studies(逗号分隔,不要 JSON 数组 — widgetembed 不解析 JSON)
+    const studiesParam = studies.join(',');
+
+    wrapper.innerHTML = `
+      <iframe
+        title="TradingView advanced chart"
+        id="${iframeId}"
+        src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=${locale}&interval=${interval}&timezone=Etc%2FUTC&theme=${theme}&style=1&symboledit=1&saveimage=1&toolbarbg=rgba(0%2C0%2C0%2C0)&studies=${studiesParam}#${encodeURIComponent(JSON.stringify(config))}"
+        style="width:100%;height:100%;margin:0!important;padding:0!important;border:0;"
+        allowtransparency="true"
+        scrolling="no"
+        allowfullscreen="true"
+      ></iframe>
+    `;
 
     return () => {
-      try {
-        if (widgetRef.current && containerRef.current) {
-          widgetRef.current.remove();
-          widgetRef.current = null;
-        }
-      } catch (e) {
-        // Ignore cleanup errors
-      }
+      wrapper.innerHTML = '';
     };
-  }, [symbol, width, height, interval, timezone, theme, locale, toolbar_bg, enable_publishing, hide_top_toolbar, hide_legend, save_image, details, hotlist, calendar, show_popup, popup_width, popup_height]);
+  }, [symbol, interval, theme, locale, hide_top_toolbar, JSON.stringify(studies)]);
 
   return (
     <div
-      id={`tradingview-widget-${symbol.replace(/[^a-zA-Z0-9]/g, '')}`}
       ref={containerRef}
-      className="tradingview-widget-container"
-      style={{ width: '100%', height }}
+      className={`tradingview-widget-container w-full ${height ? '' : 'h-full'}`}
+      style={height ? { height } : undefined}
     />
   );
 }
 
-// TradingView 价格列表小部件
-interface TradingViewMiniTickerProps {
-  symbols: string[];  // 例如: ["BINANCE:BTCUSDT", "BINANCE:ETHUSDT"]
-}
-
-export function TradingViewMiniTicker({ symbols }: TradingViewMiniTickerProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const scriptId = 'tradingview-ticker-script';
-
-    const loadTicker = () => {
-      if (containerRef.current && window.TradingView) {
-        containerRef.current.innerHTML = '';
-
-        symbols.forEach((symbol) => {
-          const containerId = `ticker-${symbol.replace(/[^a-zA-Z0-9]/g, '')}`;
-          const tickerContainer = document.createElement('div');
-          tickerContainer.id = containerId;
-          tickerContainer.style.marginBottom = '10px';
-          containerRef.current?.appendChild(tickerContainer);
-
-          new window.TradingView.widget({
-            symbol: symbol,
-            width: '100%',
-            height: 80,
-            interval: '1',
-            timezone: 'Etc/UTC',
-            theme: 'dark',
-            style: '1',
-            locale: locale,
-            toolbar_bg: '#1a1f2e',
-            enable_publishing: false,
-            hide_top_toolbar: true,
-            hide_legend: true,
-            save_image: false,
-            details: false,
-            hotlist: false,
-            calendar: false,
-            show_popup: false,
-            container_id: containerId,
-          });
-        });
-      }
-    };
-
-    const locale = 'en';
-
-    if (!document.getElementById(scriptId)) {
-      const script = document.createElement('script');
-      script.id = scriptId;
-      script.src = 'https://s3.tradingview.com/tv.js';
-      script.async = true;
-      script.onload = loadTicker;
-      document.head.appendChild(script);
-    } else {
-      loadTicker();
-    }
-
-    return () => {
-      // 清理
-    };
-  }, [symbols]);
-
-  return <div ref={containerRef} />;
-}
+export default TradingViewWidget;

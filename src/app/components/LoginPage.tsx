@@ -1,48 +1,75 @@
-import { ArrowLeft, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader2, Globe } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import { LanguageSelector } from './LanguageSelector';
 import loginDecoration from 'figma:asset/bd06caca71bbe78500a161706bf8396c06cd33e7.png';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { login, loading, error, clearError, user } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
+  const [showLanguageSelector, setShowLanguageSelector] = useState(false);
+  // 被后台强制下线时,从 sessionStorage 拿一条提示,挂在表单顶部
+  const [kickMsg, setKickMsg] = useState<string | null>(() => {
+    try {
+      const m = sessionStorage.getItem('exchange_kicked_msg');
+      if (m) sessionStorage.removeItem('exchange_kicked_msg');
+      return m;
+    } catch { return null; }
+  });
 
-  const handleLogin = () => {
-    // Mock login logic
-    console.log('Login with:', { email, password });
-    // Navigate to home after login
-    navigate('/');
+  // 已登录直接跳走
+  useEffect(() => {
+    if (user) navigate('/', { replace: true });
+  }, [user, navigate]);
+
+  // 切换 tab / 输入时清掉错误
+  useEffect(() => () => clearError(), [clearError]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!account || !password || loading) return;
+    const ok = await login(account, password);
+    if (ok) navigate('/');
   };
 
-  const handleTabSwitch = (tab: 'login' | 'register') => {
-    if (tab === 'register') {
-      navigate('/register');
-    } else {
-      setActiveTab(tab);
-    }
-  };
+  const errorMsg = error
+    ? error === 'wrong_password' || error === 'not_found' || error === 'invalid_credentials'
+      ? t('auth.errors.invalidCredentials')
+      : error === 'account_disabled'
+        ? t('auth.errors.accountDisabled')
+        : error === 'invalid_input'
+          ? t('auth.errors.invalidInput')
+          : t('auth.errors.network')
+    : null;
+
+  const canSubmit = !!account && !!password && !loading;
 
   return (
     <div className="min-h-screen bg-[#1a1a1a] text-white flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4">
-        <button onClick={() => navigate(-1)}>
-          <ArrowLeft className="w-6 h-6" />
-        </button>
+      {/* Header — 登录页无返回键(第一次进应用就在这里) */}
+      <div className="flex items-center justify-center p-4 relative">
         <h1 className="text-lg font-medium">{t('login.title')}</h1>
-        <div className="w-6" /> {/* Spacer */}
+        <button
+          onClick={() => setShowLanguageSelector(true)}
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center hover:bg-gray-600 transition-colors"
+          aria-label="Change language"
+        >
+          <Globe className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Welcome Section with Decoration */}
       <div className="relative px-6 pt-4 pb-8">
-        <img 
-          src={loginDecoration} 
-          alt="Welcome decoration" 
+        <img
+          src={loginDecoration}
+          alt="Welcome decoration"
           className="absolute right-0 top-0 w-64 h-40 object-contain opacity-90"
         />
         <div className="relative z-10">
@@ -54,7 +81,7 @@ export function LoginPage() {
       {/* Tab Switcher */}
       <div className="flex border-b border-gray-800 px-6">
         <button
-          onClick={() => handleTabSwitch('login')}
+          onClick={() => setActiveTab('login')}
           className={`flex-1 pb-3 relative ${
             activeTab === 'login' ? 'text-white' : 'text-gray-500'
           }`}
@@ -65,7 +92,7 @@ export function LoginPage() {
           )}
         </button>
         <button
-          onClick={() => handleTabSwitch('register')}
+          onClick={() => navigate('/register')}
           className={`flex-1 pb-3 relative ${
             activeTab === 'register' ? 'text-white' : 'text-gray-500'
           }`}
@@ -79,42 +106,47 @@ export function LoginPage() {
 
       {/* Form */}
       <div className="flex-1 px-6 pt-6">
-        <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }}>
-          {/* Email/Username Field */}
+        <form onSubmit={handleLogin}>
+          {/* Account Field */}
           <div className="mb-5">
             <label className="block text-sm text-gray-400 mb-2">
               {t('login.email')}
             </label>
-            <div className="bg-[#2a2a2a] rounded-lg flex items-center px-4 py-3">
+            <div className="flex items-center border-b border-gray-700 focus-within:border-[#c4f82a] py-3 transition-colors">
               <Mail className="w-5 h-5 text-gray-500 mr-3" />
               <input
                 type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={account}
+                onChange={(e) => { setAccount(e.target.value); if (error) clearError(); }}
                 placeholder={t('login.emailPlaceholder')}
-                className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600"
+                autoComplete="username"
+                disabled={loading}
+                className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 disabled:opacity-60"
               />
             </div>
           </div>
 
           {/* Password Field */}
-          <div className="mb-6">
+          <div className="mb-4">
             <label className="block text-sm text-gray-400 mb-2">
               {t('login.password')}
             </label>
-            <div className="bg-[#2a2a2a] rounded-lg flex items-center px-4 py-3">
+            <div className="flex items-center border-b border-gray-700 focus-within:border-[#c4f82a] py-3 transition-colors">
               <Lock className="w-5 h-5 text-gray-500 mr-3" />
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => { setPassword(e.target.value); if (error) clearError(); }}
                 placeholder={t('login.passwordPlaceholder')}
-                className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600"
+                autoComplete="current-password"
+                disabled={loading}
+                className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 disabled:opacity-60"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="ml-2"
+                tabIndex={-1}
               >
                 {showPassword ? (
                   <EyeOff className="w-5 h-5 text-gray-500" />
@@ -125,11 +157,34 @@ export function LoginPage() {
             </div>
           </div>
 
+          {/* Error banner */}
+          {kickMsg && (
+            <div
+              role="alert"
+              className="mb-4 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm rounded-lg px-3 py-2.5"
+            >
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{kickMsg}</span>
+            </div>
+          )}
+
+          {errorMsg && (
+            <div
+              role="alert"
+              className="mb-4 flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-lg px-3 py-2.5"
+            >
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           {/* Login Button */}
           <button
             type="submit"
-            className="w-full bg-[#c4f82a] text-black py-3.5 rounded-lg font-semibold hover:bg-[#b5e625] transition-colors mb-4"
+            disabled={!canSubmit}
+            className="w-full bg-[#c4f82a] text-black py-3.5 rounded-lg font-semibold hover:bg-[#b5e625] transition-colors mb-4 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {t('login.loginButton')}
           </button>
 
@@ -142,6 +197,11 @@ export function LoginPage() {
           </p>
         </form>
       </div>
+
+      {/* Language Selector Modal */}
+      {showLanguageSelector && (
+        <LanguageSelector onClose={() => setShowLanguageSelector(false)} />
+      )}
     </div>
   );
 }

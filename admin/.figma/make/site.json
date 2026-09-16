@@ -1,0 +1,10 @@
+{
+  "description": "This web application allows users to create exact replicas of existing designs, streamlining the design process for professionals and teams.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -1,162 +1,55 @@
-import { ArrowLeft, Copy, ScanLine } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { ArrowLeft, MessageCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 
 export function DepositPage() {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const [selectedNetwork, setSelectedNetwork] = useState('TRC20');
-  const [amount, setAmount] = useState('');
-  const [txHash, setTxHash] = useState('');
-  const [sourceAddress, setSourceAddress] = useState('');
-
-  const depositAddress = 'TBcqmyMwrtTpxug750w85eEGr6cKXaGw8';
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(depositAddress);
-  };
 
   return (
-    <div className="min-h-screen bg-black text-white pb-20">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)}>
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-          <div>
-            <h1 className="text-lg">{t('deposit.title')}</h1>
-            <p className="text-xs text-gray-500">{t('deposit.selectCurrency')}</p>
+    <div className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+      {/* 返回按钮 — 左上角 */}
+      <button
+        onClick={() => navigate(-1)}
+        className="absolute top-4 left-4 w-10 h-10 rounded-full bg-[#1a1a1a] flex items-center justify-center hover:bg-[#262626] transition-colors"
+        aria-label="返回"
+      >
+        <ArrowLeft className="w-5 h-5 text-gray-300" />
+      </button>
+
+      {/* 弹窗卡片 */}
+      <div
+        className="w-full max-w-sm bg-[#161616] border border-[#2a2a2a] rounded-2xl p-7 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+      >
+        {/* 头部:图标 + 标题 */}
+        <div className="flex flex-col items-center text-center mb-5">
+          <div className="w-16 h-16 rounded-full bg-[#c4f82a]/15 border border-[#c4f82a]/40 flex items-center justify-center mb-4">
+            <MessageCircle className="w-8 h-8 text-[#c4f82a]" />
           </div>
-        </div>
-        <Link to="/deposit/history" className="text-sm text-[#c4f82a]">
-          {t('deposit.history')}
-        </Link>
-      </div>
-
-      <div className="px-4">
-        {/* Network Selection */}
-        <div className="mb-6">
-          <h3 className="text-sm text-gray-400 mb-3">{t('deposit.selectNetwork')}</h3>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSelectedNetwork('TRC20')}
-              className={`flex-1 py-3 rounded-xl transition-all ${
-                selectedNetwork === 'TRC20'
-                  ? 'bg-[#c4f82a] text-black'
-                  : 'bg-[#1a1a1a] text-gray-400'
-              }`}
-            >
-              TRC20
-            </button>
-            <button
-              onClick={() => setSelectedNetwork('ERC20')}
-              className={`flex-1 py-3 rounded-xl transition-all ${
-                selectedNetwork === 'ERC20'
-                  ? 'bg-[#c4f82a] text-black'
-                  : 'bg-[#1a1a1a] text-gray-400'
-              }`}
-            >
-              ERC20
-            </button>
-            <button
-              onClick={() => setSelectedNetwork('BEP20')}
-              className={`flex-1 py-3 rounded-xl transition-all ${
-                selectedNetwork === 'BEP20'
-                  ? 'bg-[#c4f82a] text-black'
-                  : 'bg-[#1a1a1a] text-gray-400'
-              }`}
-            >
-              BEP20
-            </button>
-          </div>
+          <h2 className="text-lg font-semibold text-white mb-1">
+            {t('deposit.noticeTitle') || '充值提示'}
+          </h2>
+          <div className="w-12 h-0.5 bg-[#c4f82a] rounded-full" />
         </div>
 
-        {/* Deposit Address */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm text-gray-400">{t('deposit.address')}</h3>
-            <button className="text-xs text-[#c4f82a] flex items-center gap-1">
-              {t('deposit.scanCode')}
-            </button>
-          </div>
+        {/* 文案 */}
+        <p className="text-sm text-gray-300 leading-relaxed mb-6 text-center whitespace-pre-line">
+          {t('deposit.noticeBody') ||
+            `Hello, Please contact teacher to get the latest channels for recharging.
+Thank you for your support and trust.
+Please return to the previous page.`}
+        </p>
 
-          <div className="bg-[#1a1a1a] rounded-xl p-4 mb-3">
-            <p className="text-sm break-all text-gray-300">{depositAddress}</p>
-          </div>
-
-          <button
-            onClick={copyToClipboard}
-            className="w-full bg-[#3a4a2a] text-white py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-[#4a5a3a] transition-colors"
-          >
-            <Copy className="w-4 h-4" />
-            <span>{t('deposit.copyAddress')}</span>
-          </button>
-        </div>
-
-        {/* Amount Input */}
-        <div className="mb-4">
-          <h3 className="text-sm text-gray-400 mb-3">{t('deposit.amount')} (USDT)</h3>
-          <input
-            type="text"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder={t('deposit.amountPlaceholder')}
-            className="w-full bg-[#1a1a1a] rounded-xl p-4 outline-none focus:ring-2 focus:ring-[#c4f82a] transition-all placeholder-gray-600 text-white"
-          />
-        </div>
-
-        {/* Transaction Hash */}
-        <div className="mb-4">
-          <h3 className="text-sm text-gray-400 mb-3">{t('deposit.txHash')}</h3>
-          <input
-            type="text"
-            value={txHash}
-            onChange={(e) => setTxHash(e.target.value)}
-            placeholder={t('deposit.txHashPlaceholder')}
-            className="w-full bg-[#1a1a1a] rounded-xl p-4 outline-none focus:ring-2 focus:ring-[#c4f82a] transition-all placeholder-gray-600 text-white"
-          />
-        </div>
-
-        {/* Source Address */}
-        <div className="mb-6">
-          <h3 className="text-sm text-gray-400 mb-3">{t('deposit.sourceAddress')}</h3>
-          <input
-            type="text"
-            value={sourceAddress}
-            onChange={(e) => setSourceAddress(e.target.value)}
-            placeholder={t('deposit.sourceAddressPlaceholder')}
-            className="w-full bg-[#1a1a1a] rounded-xl p-4 outline-none focus:ring-2 focus:ring-[#c4f82a] transition-all placeholder-gray-600 text-white"
-          />
-        </div>
-
-        {/* Submit Button */}
-        <button className="w-full bg-[#c4f82a] text-black py-4 rounded-xl mb-4 hover:opacity-90 transition-opacity">
-          {t('deposit.submit')}
+        {/* 返回按钮 */}
+        <button
+          onClick={() => navigate(-1)}
+          className="w-full bg-[#c4f82a] text-black py-3.5 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>{t('deposit.backToPrev') || '返回上一页'}</span>
         </button>
-
-        {/* Notice */}
-        <div className="bg-[#1a1a1a] rounded-xl p-4">
-          <div className="text-xs text-gray-500 space-y-2">
-            <div className="flex items-start gap-2">
-              <span>•</span>
-              <span>{t('deposit.minAmountNotice')}</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span>•</span>
-              <span>{t('deposit.networkNotice')}</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span>•</span>
-              <span>{t('deposit.confirmationNotice')}</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span>•</span>
-              <span>{t('deposit.supportNotice')}</span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );

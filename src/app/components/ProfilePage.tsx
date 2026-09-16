@@ -1,22 +1,84 @@
-import { Headphones, ScanLine, Settings, RefreshCw, Wallet, CreditCard, TrendingUp, History, Shield, ChevronRight, Menu, LogOut } from 'lucide-react';
+import { Headphones, Settings, RefreshCw, Wallet, CreditCard, TrendingUp, History, Shield, ChevronRight, Menu, LogOut, Bell, Info, MessageCircle } from 'lucide-react';
 import profileImage from 'figma:asset/24411b954e9a7d0808d3690d275bfb16d666f530.png';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+
+function fmtAmt(n: number | string | undefined | null): string {
+  return Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 export function ProfilePage() {
   const { t } = useLanguage();
+  const { user, refresh, logout } = useAuth();
+  const navigate = useNavigate();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [showContact, setShowContact] = useState(false);
 
-  const handleRefresh = () => {
+  // 进入页面从服务器拉一次最新的余额/信用分
+  // 1) 首次挂载 / user.id 变化
+  // 2) 从 bfcache / 别的页面返回(`pageshow`)— 这是下单后"我的"余额更新的关键
+  useEffect(() => {
+    if (user?.id) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  useEffect(() => {
+    const onShow = () => { if (user?.id) refresh(); };
+    window.addEventListener('pageshow', onShow);
+    window.addEventListener('focus', onShow);
+    return () => {
+      window.removeEventListener('pageshow', onShow);
+      window.removeEventListener('focus', onShow);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // 站内信未读数 — 30s 轮询一次,挂载 / 路由切换 / 收到消息都刷新
+  const fetchUnread = useCallback(async () => {
+    if (!user?.id) { setUnreadCount(0); return; }
+    try {
+      const r = await fetch(`/api/messages/unread?member_id=${user.id}`);
+      const d = await r.json();
+      if (r.ok) setUnreadCount(Number(d.unread_count) || 0);
+    } catch { /* ignore */ }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchUnread();
+    const t = setInterval(fetchUnread, 30_000);
+    return () => clearInterval(t);
+  }, [fetchUnread]);
+
+  // 监听 /messages 页面回来后清零(用 visibilitychange + 焦点事件)
+  useEffect(() => {
+    const onFocus = () => fetchUnread();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [fetchUnread]);
+
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    // 模拟刷新余额数据的延迟
-    setTimeout(() => {
-      setIsRefreshing(false);
-      // 这里可以添加实际的余额数据刷新逻辑
-      // 例如：fetchBalanceData()
-    }, 500);
+    try {
+      await refresh();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 300);
+    }
   };
+
+  const handleLogout = () => {
+    if (!window.confirm(t('profile.confirmLogout') || '确定要退出登录吗?')) return;
+    logout();                                   // 清掉 AuthContext.user + localStorage
+    navigate('/login', { replace: true });      // 跳到登录页
+  };
+
+  // 信用分从 "100|1" 之类格式里取前半段
+  const creditScore = (() => {
+    const c = String(user?.credit ?? '0').split('|')[0];
+    return c || '0';
+  })();
   
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0f1419] to-[#1a1f2e] text-white pb-20">
@@ -35,14 +97,16 @@ export function ProfilePage() {
               </div>
             </div>
             <div>
-              <h2 className="text-xl mb-1">aa112233</h2>
-              <p className="text-xs text-gray-400">{t('profile.uid')}: 54</p>
-              <Link 
-                to="/login" 
-                className="text-xs text-[#c4f82a] hover:underline mt-1 inline-block"
-              >
-                {t('profile.switchAccount')}
-              </Link>
+              <h2 className="text-xl mb-1">{user?.nickname || user?.account || t('profile.notLoggedIn')}</h2>
+              <p className="text-xs text-gray-400">{t('profile.uid')}: {user?.id ?? '—'}</p>
+              {!user && (
+                <Link
+                  to="/login"
+                  className="text-xs text-[#c4f82a] hover:underline mt-1 inline-block"
+                >
+                  {t('profile.switchAccount')}
+                </Link>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3 relative z-10">
@@ -54,9 +118,21 @@ export function ProfilePage() {
             >
               <Headphones className="w-5 h-5 text-gray-300" />
             </a>
-            <button className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center">
-              <ScanLine className="w-5 h-5 text-gray-300" />
-            </button>
+            <Link
+              to="/messages"
+              className="relative w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors"
+              title={unreadCount > 0 ? `站内信 · ${unreadCount} 条未读` : "站内信"}
+            >
+              <Bell className="w-5 h-5 text-gray-300" />
+              {unreadCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#0f1419]"
+                  aria-label={`未读 ${unreadCount}`}
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </Link>
             <Link to="/settings" className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center">
               <Settings className="w-5 h-5 text-gray-300" />
             </Link>
@@ -79,7 +155,7 @@ export function ProfilePage() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-[#c4f82a] rounded-full"></div>
-              <span className="text-sm text-gray-300">TOTAL ASSETS</span>
+              <span className="text-sm text-gray-300">{t('profile.totalAssets')}</span>
             </div>
             <button 
               onClick={handleRefresh}
@@ -90,20 +166,8 @@ export function ProfilePage() {
           </div>
           
           <div className="mb-4">
-            <div className="flex items-baseline gap-2">
-              <span className="text-4xl">0.00</span>
-              <span className="text-xl text-gray-300">USDT</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6 mb-6">
-            <div className="flex items-center gap-2 text-xs">
-              <Wallet className="w-4 h-4 text-gray-400" />
-              <span className="text-gray-400">0</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-green-400">
-              <TrendingUp className="w-4 h-4" />
-              <span>+0</span>
+            <div className="flex items-baseline justify-center gap-2">
+              <span className="text-4xl">{fmtAmt(Number(user?.balance ?? 0) + Number(user?.frozen ?? 0))}</span>
             </div>
           </div>
 
@@ -114,21 +178,21 @@ export function ProfilePage() {
                 <Wallet className="w-3 h-3" />
                 {t('profile.balance')}
               </div>
-              <div className="text-base">0.00</div>
+              <div className="text-base">{fmtAmt(user?.balance)}</div>
             </div>
             <div className="text-center">
               <div className="text-xs text-gray-400 mb-1 flex items-center justify-center gap-1">
                 <CreditCard className="w-3 h-3" />
                 {t('profile.credit')}
               </div>
-              <div className="text-base">0.00</div>
+              <div className="text-base">{creditScore}</div>
             </div>
             <div className="text-center">
               <div className="text-xs text-gray-400 mb-1 flex items-center justify-center gap-1">
                 <TrendingUp className="w-3 h-3" />
-                {t('profile.equity')}
+                {t('profile.frozen')}
               </div>
-              <div className="text-base">0.00</div>
+              <div className="text-base">{fmtAmt(user?.frozen)}</div>
             </div>
           </div>
         </div>
@@ -148,33 +212,15 @@ export function ProfilePage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="px-4 mb-6">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-gray-800/50 rounded-xl p-4 text-center border border-gray-700/50">
-            <div className="text-xs text-gray-400 mb-2">{t('profile.winRate')}</div>
-            <div className="text-xl text-green-400">0.0%</div>
-          </div>
-          <div className="bg-gray-800/50 rounded-xl p-4 text-center border border-gray-700/50">
-            <div className="text-xs text-gray-400 mb-2">{t('profile.trades')}</div>
-            <div className="text-xl">0</div>
-          </div>
-          <div className="bg-gray-800/50 rounded-xl p-4 text-center border border-gray-700/50">
-            <div className="text-xs text-gray-400 mb-2">{t('profile.balance')}</div>
-            <div className="text-xl text-yellow-500">$0</div>
-          </div>
-        </div>
-      </div>
-
       {/* Menu Items */}
       <div className="px-4 space-y-3">
-        <Link to="/deposit">
+        <Link to="/my-wallets">
           <button className="w-full bg-gray-800/50 rounded-xl p-4 flex items-center justify-between border border-gray-700/50">
             <div className="flex items-center gap-3">
-              <Wallet className="w-5 h-5 text-gray-400" />
+              <CreditCard className="w-5 h-5 text-amber-400" />
               <div className="text-left">
-                <div className="text-sm">{t('profile.deposit')}</div>
-                <div className="text-xs text-gray-400">Deposit</div>
+                <div className="text-sm">我的钱包</div>
+                <div className="text-xs text-gray-500">银行卡 / 数字币钱包管理</div>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />
@@ -187,7 +233,6 @@ export function ProfilePage() {
               <History className="w-5 h-5 text-gray-400" />
               <div className="text-left">
                 <div className="text-sm">{t('profile.fundRecords')}</div>
-                <div className="text-xs text-gray-400">View All</div>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />
@@ -200,7 +245,6 @@ export function ProfilePage() {
               <Shield className="w-5 h-5 text-gray-400" />
               <div className="text-left">
                 <div className="text-sm">{t('profile.security')}</div>
-                <div className="text-xs text-gray-400">High Strength</div>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />
@@ -213,24 +257,115 @@ export function ProfilePage() {
               <Settings className="w-5 h-5 text-gray-400" />
               <div className="text-left">
                 <div className="text-sm">{t('profile.settings')}</div>
-                <div className="text-xs text-gray-400">Settings</div>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />
           </button>
         </Link>
+
+        {/* 关于公司 + 在线客服 + 站内信 — 紧凑贴在一起(共享一个圆角卡片) */}
+        <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 divide-y divide-gray-700/50">
+          <Link
+            to="/about"
+            className="w-full p-4 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <Info className="w-5 h-5 text-gray-400" />
+              <div className="text-left">
+                <div className="text-sm">{t('profile.about')}</div>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          </Link>
+          <Link
+            to="/messages"
+            className="w-full p-4 flex items-center justify-between relative"
+          >
+            <div className="flex items-center gap-3">
+              <Bell className="w-5 h-5 text-gray-400" />
+              <div className="text-left">
+                <div className="text-sm">{t('profile.messages')}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {unreadCount > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+              <ChevronRight className="w-5 h-5 text-gray-400" />
+            </div>
+          </Link>
+          <a
+            href="https://t.me/your_support"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full p-4 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <MessageCircle className="w-5 h-5 text-gray-400" />
+              <div className="text-left">
+                <div className="text-sm">{t('profile.contactSupport')}</div>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          </a>
+        </div>
+
+        {/* 在线客服弹窗 */}
+        {showContact && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
+            onClick={() => setShowContact(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full sm:max-w-md bg-gradient-to-b from-[#1a1f2e] to-[#0f1419] rounded-t-2xl sm:rounded-2xl border border-gray-700/60 p-6"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base text-white">在线客服</h3>
+                <button
+                  onClick={() => setShowContact(false)}
+                  className="text-gray-400 hover:text-white text-xl leading-none"
+                  aria-label="关闭"
+                >×</button>
+              </div>
+              <div className="space-y-3 text-sm">
+                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/40">
+                  <div className="text-xs text-gray-400 mb-1">公司名称</div>
+                  <div>Crypto Investment Platform</div>
+                </div>
+                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/40">
+                  <div className="text-xs text-gray-400 mb-1">客服邮箱</div>
+                  <div className="text-[#c4f82a]">support@example.com</div>
+                </div>
+                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/40">
+                  <div className="text-xs text-gray-400 mb-1">Telegram / WhatsApp</div>
+                  <div>+86 138-0000-0000</div>
+                </div>
+                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/40">
+                  <div className="text-xs text-gray-400 mb-1">工作时间</div>
+                  <div>7 × 24 小时全天候服务</div>
+                </div>
+              </div>
+              <a
+                href="https://t.me/your_support"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-5 w-full bg-gradient-to-r from-[#c4f82a] to-green-500 text-black py-3 rounded-xl flex items-center justify-center gap-2 font-semibold"
+              >
+                <MessageCircle className="w-5 h-5" />
+                <span>立即开始在线聊天</span>
+              </a>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Logout Button */}
       <div className="px-4 mt-8 mb-6">
         <button
-          onClick={() => {
-            // Handle logout logic here
-            if (window.confirm(t('profile.confirmLogout'))) {
-              // Perform logout
-              window.location.href = '/';
-            }
-          }}
+          onClick={handleLogout}
           className="w-full bg-gray-900/50 border-2 border-red-600 hover:bg-red-900/20 text-red-500 py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all"
         >
           <LogOut className="w-6 h-6" />

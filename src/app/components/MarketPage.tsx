@@ -1,19 +1,10 @@
 import { Search, Globe, TrendingUp, TrendingDown } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { LanguageSelector } from './LanguageSelector';
+import { CryptoLogo } from './CryptoLogo';
 import { useLanguage } from '../contexts/LanguageContext';
-
-// 币种配置 - 带官方Logo URL
-const CRYPTO_CONFIG = [
-  { symbol: 'BINANCE:BTCUSDT', name: 'Bitcoin', logo: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png', color: 'bg-orange-500', key: 'BTC' },
-  { symbol: 'BINANCE:ETHUSDT', name: 'Ethereum', logo: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png', color: 'bg-blue-500', key: 'ETH' },
-  { symbol: 'BINANCE:BNBUSDT', name: 'BNB', logo: 'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png', color: 'bg-yellow-500', key: 'BNB' },
-  { symbol: 'BINANCE:SOLUSDT', name: 'Solana', logo: 'https://assets.coingecko.com/coins/images/4128/small/solana.png', color: 'bg-purple-500', key: 'SOL' },
-  { symbol: 'BINANCE:ADAUSDT', name: 'Cardano', logo: 'https://assets.coingecko.com/coins/images/975/small/cardano.png', color: 'bg-blue-600', key: 'ADA' },
-  { symbol: 'BINANCE:TRXUSDT', name: 'TRON', logo: 'https://assets.coingecko.com/coins/images/1094/small/tron-logo.png', color: 'bg-red-500', key: 'TRX' },
-  { symbol: 'BINANCE:DOGEUSDT', name: 'Dogecoin', logo: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png', color: 'bg-yellow-600', key: 'DOGE' },
-];
+import { MARKET_COINS as CRYPTO_CONFIG } from '../data/marketConfig';
 
 
 // Fallback translations for market page headers
@@ -225,34 +216,13 @@ function RealMiniChart({ data }: { data: number[] }) {
   );
 }
 
-// 价格显示组件 - 垂直排列
-function PriceOnly({ symbol }: { symbol: string }) {
-  const [price, setPrice] = useState<number>(0);
-  const [changePercent, setChangePercent] = useState<number>(0);
-  const [positive, setPositive] = useState<boolean>(true);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const wsSymbol = symbol.replace('BINANCE:', '').replace('FX:', '');
-    const binanceSymbol = symbol.startsWith('BINANCE:') ? wsSymbol : null;
-
-    if (binanceSymbol) {
-      const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${binanceSymbol.toLowerCase()}@ticker`);
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        setPrice(parseFloat(data.c));
-        setChangePercent(parseFloat(data.P));
-        setPositive(parseFloat(data.P) >= 0);
-        setLoading(false);
-      };
-
-      ws.onerror = () => setLoading(false);
-
-      return () => ws.close();
-    }
-  }, [symbol]);
-
+// 价格显示组件 - 垂直排列 (数据由父级 MarketPage 通过 props 传入)
+function PriceOnly({ price, changePercent, positive, loading }: {
+  price: number;
+  changePercent: number;
+  positive: boolean;
+  loading: boolean;
+}) {
   const formatPrice = (p: number) => {
     if (p >= 1000) {
       return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -285,27 +255,14 @@ function PriceOnly({ symbol }: { symbol: string }) {
   );
 }
 
-// Logo图片组件 - 撑满容器
-function CryptoLogo({ src, name }: { src: string; name: string }) {
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(false);
-
-  if (error || !src) {
-    return (
-      <div className="w-10 h-10 bg-gray-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
-        {name.substring(0, 1)}
-      </div>
-    );
-  }
-
+// 排序箭头 ▲▼
+function SortArrows({ active, dir, muted }: { active: boolean; dir: 'asc' | 'desc'; muted?: boolean }) {
+  const baseColor = muted ? 'text-gray-600' : active ? 'text-[#c4f82a]' : 'text-gray-400';
   return (
-    <img
-      src={src}
-      alt={name}
-      className={`w-10 h-10 rounded-full object-cover ${loaded ? 'opacity-100' : 'opacity-0'} transition-opacity`}
-      onLoad={() => setLoaded(true)}
-      onError={() => setError(true)}
-    />
+    <span className={`inline-flex flex-col leading-none ${baseColor}`} aria-hidden>
+      <span className={`text-[8px] ${active && dir === 'asc' ? 'opacity-100' : 'opacity-50'}`}>▲</span>
+      <span className={`text-[8px] ${active && dir === 'desc' ? 'opacity-100' : 'opacity-50'}`}>▼</span>
+    </span>
   );
 }
 
@@ -349,6 +306,78 @@ export function MarketPage() {
   };
 
   const currentConfig = getCurrentConfig();
+
+  // === 排序状态 ===
+  const [sortKey, setSortKey] = useState<'price' | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const handleSort = () => {
+    if (sortKey === 'price') {
+      if (sortDir === 'desc') setSortDir('asc');
+      else { setSortKey(null); setSortDir('desc'); }
+    } else {
+      setSortKey('price');
+      setSortDir('desc');
+    }
+  };
+
+  // === 实时价格数据 — 用 Binance 合并 stream 单条 WS 拉全部 ===
+  const dataMapRef = useRef<Record<string, { price: number; change: number; positive: boolean }>>({});
+  const loadedSetRef = useRef<Set<string>>(new Set());
+  const [, forceUpdate] = useState(0);
+  useEffect(() => {
+    // 重置
+    dataMapRef.current = {};
+    loadedSetRef.current = new Set();
+
+    const streams = currentConfig
+      .map(item => {
+        const wsSymbol = item.symbol.replace('BINANCE:', '').replace('FX:', '').toLowerCase();
+        if (!wsSymbol || item.symbol.startsWith('FX:')) return null;
+        return `${wsSymbol}@ticker`;
+      })
+      .filter(Boolean)
+      .join('/');
+
+    if (!streams) return;
+
+    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        const data = msg.data;
+        if (!data || !data.s) return;
+        const prev = dataMapRef.current[data.s];
+        const next = {
+          price: parseFloat(data.c),
+          change: parseFloat(data.P),
+          positive: parseFloat(data.P) >= 0,
+        };
+        if (prev?.price === next.price && prev.change === next.change) return;
+        dataMapRef.current[data.s] = next;
+        loadedSetRef.current.add(data.s);
+        forceUpdate(n => n + 1);
+      } catch {}
+    };
+    return () => { try { ws.close(); } catch {} };
+  }, [currentConfig]);
+
+  // === 计算排序后的列表 ===
+  const sortedConfig = (() => {
+    if (!sortKey) return currentConfig;
+    const data = dataMapRef.current;
+    const arr = [...currentConfig];
+    arr.sort((a, b) => {
+      const aKey = a.symbol.replace('BINANCE:', '').replace('FX:', '').toUpperCase();
+      const bKey = b.symbol.replace('BINANCE:', '').replace('FX:', '').toUpperCase();
+      const av = data[aKey]?.price;
+      const bv = data[bKey]?.price;
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+    return arr;
+  })();
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0f1419] to-[#1a1f2e] text-white pb-20">
@@ -408,29 +437,38 @@ export function MarketPage() {
         </div>
       </div>
 
-      {/* Table Header */}
+      {/* Table Header — 最新价 可点击排序 */}
       <div className="px-4 mb-2">
-        <div className="flex items-center justify-between text-xs text-gray-500">
+        <div className="flex items-center justify-between text-xs text-gray-500 pr-3">
           <div className="flex items-center gap-3">
             <div className="w-10"></div>
             <div>{getMarketHeaderText('nameVolume')}</div>
           </div>
           <div className="w-20 text-center flex-shrink-0">{getMarketHeaderText('trend')}</div>
-          <div className="w-24 text-right">{getMarketHeaderText('latestPrice')}</div>
+          <button
+            onClick={handleSort}
+            className="flex items-center gap-1 hover:text-white transition-colors"
+          >
+            <SortArrows active={sortKey === 'price'} dir={sortDir} />
+            <span>{getMarketHeaderText('latestPrice')}</span>
+          </button>
         </div>
       </div>
 
       {/* Crypto/Forex List */}
       <div className="px-4 space-y-2">
-        {currentConfig.map((item) => {
+        {sortedConfig.map((item) => {
           const symbolKey = item.key.replace('/', '').toLowerCase();
           const tradingLink = `/trading?symbol=${symbolKey}`;
+          const wsKey = item.symbol.replace('BINANCE:', '').replace('FX:', '').toUpperCase();
+          const data = dataMapRef.current[wsKey];
+          const loaded = loadedSetRef.current.has(wsKey);
 
           return (
             <Link
               key={item.symbol}
               to={tradingLink}
-              className="block bg-gray-800/30 rounded-xl p-3 border border-gray-700/30 hover:border-gray-600/50 transition-colors"
+              className="block bg-gray-800/30 rounded-xl p-3 pr-3 border border-gray-700/30 hover:border-gray-600/50 transition-colors"
             >
               <div className="flex items-center justify-between">
                 {/* Left: Logo & Info */}
@@ -454,8 +492,13 @@ export function MarketPage() {
                 {/* Middle: Mini Chart */}
                 <PriceWithChart symbol={item.symbol} />
 
-                {/* Right: Price only */}
-                <PriceOnly symbol={item.symbol} />
+                {/* Right: Price only (数据由父级 WS 推送) */}
+                <PriceOnly
+                  price={data?.price ?? 0}
+                  changePercent={data?.change ?? 0}
+                  positive={data?.positive ?? true}
+                  loading={!loaded}
+                />
               </div>
             </Link>
           );

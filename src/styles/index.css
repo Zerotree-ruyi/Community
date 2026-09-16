@@ -1,1 +1,13 @@
 @import './tailwind.css';
+
+/* 修复 Chrome 自动填充(input:-webkit-autofill)导致的米白色/淡黄色背景:
+   把 input 内阴影填成与深色页面 (#1a1a1a) 同色,并强制文字为白色。 */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #1a1a1a inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+  transition: background-color 5000s ease-in-out 0s;
+}
