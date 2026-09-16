@@ -61,12 +61,21 @@ command -v mysql >/dev/null 2>&1 || err "未找到 mysql 命令,请先在 B 台�
 # ── 连接测试 ────────────────────────────────────────────────────
 info "测试 MySQL 连接 mysql://${MYSQL_ROOT_USER}@${DB_HOST}:${DB_PORT} ..."
 if [[ -z "${MYSQL_ROOT_PASS:-}" ]]; then
+    # 先试无密码直通(部分宝塔默认会保留无密码 root)
     if ! mysql -h "$DB_HOST" -P "$DB_PORT" -u "$MYSQL_ROOT_USER" -e "SELECT 1" >/dev/null 2>&1; then
-        read -rs -p "请输入 root 密码: " MYSQL_ROOT_PASS; echo
+        # 直通失败 → 提示输入密码
+        if [[ -r /dev/tty ]]; then
+            read -rs -p "请输入 root 密码: " MYSQL_ROOT_PASS < /dev/tty; echo
+        else
+            read -rs -p "请输入 root 密码: " MYSQL_ROOT_PASS; echo
+        fi
     fi
-    ROOT_CMD=(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$MYSQL_ROOT_USER")
-else
+fi
+# 读完(无论之前有没有)再统一构建 ROOT_CMD,确保密码一定带上
+if [[ -n "${MYSQL_ROOT_PASS:-}" ]]; then
     ROOT_CMD=(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$MYSQL_ROOT_USER" "-p${MYSQL_ROOT_PASS}")
+else
+    ROOT_CMD=(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$MYSQL_ROOT_USER")
 fi
 "${ROOT_CMD[@]}" -e "SELECT VERSION()" >/dev/null || err "MySQL 连接失败"
 
