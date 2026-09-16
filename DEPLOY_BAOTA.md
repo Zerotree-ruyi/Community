@@ -162,68 +162,76 @@ wget -O install.sh http://download.bt.cn/install/install-ubuntu_6.0.sh && sudo b
 
 ---
 
-## 🗄️ 第 2 步:B 台 (3.1.38.13) — 安装 MySQL + Node.js
+## 🗄️ 第 2 步:B 台 (3.1.38.13) — 安装 MySQL + 创建数据库
 
-### 2.1 宝塔面板安装软件
+> 🎯 **这一节只做两件事:**
+> ① 装 MySQL + PM2 + Nginx
+> ② 在宝塔里建一个空数据库 `zero`
+>
+> ❌ 这一节**不做**建表 — 建表要等到 §3 把代码传上来后,才能跑 `scripts/init-db.sh`。
 
-宝塔面板 → **软件商店** 安装:
+### 2.1 在宝塔里装软件
 
-| 软件 | 版本建议 | 说明 |
+宝塔左侧菜单 → **软件商店**,挨个安装:
+
+| 软件 | 版本建议 | 安装完不用动什么 |
 |---|---|---|
-| Nginx | 1.22+ | 反向代理(后台站点也用它) |
-| MySQL | 5.7 或 8.0 | 数据库 |
-| PM2 管理器 | 5.x | Node 进程管理(自带 Node) |
+| **Nginx** | 1.22+ | 默认配置即可 |
+| **MySQL** | 5.7 或 8.0 | 装好会自动启动 |
+| **PM2 管理器** | 5.x | 自带 Node.js,装好会在左侧出现「PM2 管理器」菜单 |
 
-### 2.2 创建数据库
+安装过程中如果问要不要开机启动,**全勾**。装完后等 30 秒,在宝塔首页「软件列表」里能看到三个都在「运行中」。
 
-宝塔面板 → **数据库** → 添加数据库:
+### 2.2 建一个空数据库 `zero`
 
-```
-数据库名:   zero
-用户名:     zero
-密码:       zh123456
-访问权限:   本地服务器    ← 关键!仅允许 localhost
-```
+宝塔左侧菜单 → **数据库** → 顶部 **添加数据库** 按钮,在弹出框这样填:
 
-> ⚠️ **不要设为"所有人"** — 仅本地访问,前端服务器通过 Nginx 反代调后端 API,不直连 MySQL。
+| 表单项 | 你要填的值 |
+|---|---|
+| **数据库名** | `zero` |
+| **用户名** | `zero` |
+| **密码** | `zh123456` |
+| **访问权限** | **本地服务器** ⚠️ |
+| **编码** | `utf8mb4`(默认就是,不用改) |
 
-### 2.3 一键导入表结构(推荐)
+> ⚠️ **访问权限必须选「本地服务器」**,**不要**选「所有人」!只允许 B 台本机连 MySQL,A 台不直连(它走 Nginx 反代调后端 API)。
 
-把代码上传到 B 台后(见 §3.2),直接跑脚本,**不必手动去 phpMyAdmin 贴 SQL**:
+点 **提交**。
 
+回到数据库列表,应该看到多了一行 `zero`,状态是「未导入数据」(因为表还没建)。
+
+### 2.3 确认 MySQL 能登录 + 拿到 root 密码
+
+接下来 §3 跑 `init-db.sh` 的时候要用 **MySQL root 密码**(临时连 root 来建表,应用运行时才用 `zero` 这个普通账号)。
+
+宝塔左侧菜单 → **数据库** → 顶部 **root 密码** 按钮(或「设置」 → MySQL 密码)→ **记录下来**(如果忘了可以在这里重置)。
+
+**验证 root 能连**(宝塔终端):
 ```bash
-cd /www/wwwroot/exchange-admin/admin
-chmod +x scripts/init-db.sh
-
-# 传参形式 — 与宝塔里建好的数据库保持一致
-./scripts/init-db.sh \
-  --name zero \
-  --user zero \
-  --pass 'zh123456'
+mysql -uroot -p
+# 输入刚才记下来的 root 密码
+# 看到 mysql> 提示符即成功
+# 输入 exit 退出
 ```
 
-脚本会自动:
-1. 验证 MySQL 连接(需要 root 密码,首次会提示输入)
-2. 在 `zero` 库里导入 `schema.sql` + `schema-admin.sql`
-3. 按文件名顺序应用 `migrations/` 下全部迁移
-4. 询问是否创建默认超级管理员 `admin / admin123`(回车跳过 / `y` 创建)
-
-> 📌 **重点**:脚本用的是 MySQL **root** 权限来执行建表(临时连 root),应用运行时仍用 `zero` 普通账号连(更安全)。所以你要先拿到 root 密码 — 在宝塔数据库页面的「root 密码」处查看/重置。
-
-**纯命令行,无交互(适合 CI / 自动化)**:
+再验证 `zero` 普通账号能连:
 ```bash
-MYSQL_ROOT_PASS='你的root密码' \
-DB_NAME=zero DB_USER=zero DB_PASS='zh123456' \
-  ./scripts/init-db.sh --skip-seed
+mysql -h127.0.0.1 -uzero -p'zh123456' zero -e "SHOW TABLES;"
+# 应输出:
+#   ERROR 1146 (42S02): Table 'zero.xxx' doesn't exist
+# (空表 — 这是正常的,因为我们还没建表!有这行报错说明数据库账号能连)
 ```
 
-### 2.4 没用脚本?手动导入备选
+### 2.4 §2 完成 — 接下来去 §3
 
-宝塔面板 → 数据库 → `zero` 右侧 **管理** → phpMyAdmin,依次执行:
+✅ 到这里 §2 全部做完了:
+- MySQL / Nginx / PM2 都装好并运行
+- `zero` 库建好了(空库,没表)
+- MySQL root 密码你记下来了
 
-1. `admin/schema.sql` → 粘贴执行
-2. `admin/schema-admin.sql` → 粘贴执行
-3. `admin/migrations/` 下所有 `.sql` 文件 → 按文件名顺序执行
+❌ 数据库现在还是**空的**(没有任何表) — 这是正常的,因为我们还没上传代码,**没法**跑导表脚本。
+
+📍 **下一步 → §3**:把后端代码上传到 B 台,上传完成后 §3 里就有一步专门跑 `init-db.sh` 把表建出来。
 
 ---
 
@@ -231,8 +239,10 @@ DB_NAME=zero DB_USER=zero DB_PASS='zh123456' \
 
 > 🎯 **这一节会带你按这个顺序在宝塔上点:**
 > 左侧菜单「**文件**」 → 进入 `/www/wwwroot/exchange-admin/` → 上传/拉取代码
+> → §3.3 跑 `init-db.sh` 把 §2.2 建的 `zero` 空库填上表
+> → §3.4 `npm install` + §3.5 写 `.env`
 > → 左侧菜单「**PM2 管理器**」 → 添加项目
-> → 左侧菜单「**网站**」 → 添加站点(`exchange-admin-b.local`)
+> → 左侧菜单「**网站**」 → 添加站点(`exchange-admin.b.local`)
 > → 左侧菜单「**安全**」 → 放行端口
 
 ### 3.1 创建项目根目录(SSH)
@@ -286,7 +296,38 @@ pwd
 /www/wwwroot/exchange-admin/admin.zip       ← 解压完忘了点进去
 ```
 
-### 3.3 安装依赖
+### 3.3 导入数据库表结构(填上 §2.2 建的空库)
+
+> 🎯 **这一步把 §2.2 建的 `zero` 空库填上表**。脚本 `init-db.sh` 在我们刚才上传的代码包里 `scripts/` 目录下,直接 SSH 跑就行。
+
+宝塔终端:
+```bash
+cd /www/wwwroot/exchange-admin/admin
+chmod +x scripts/init-db.sh
+
+# 用法:跟 §2.2 宝塔里建库的 4 个值保持完全一致
+./scripts/init-db.sh \
+  --name zero \
+  --user zero \
+  --pass 'zh123456'
+```
+
+跑起来后脚本会做这些事(逐条打印进度):
+1. **问你 MySQL root 密码**(就是 §2.3 让你记下来的那个)— 输入,回车
+2. 在 `zero` 库里导入业务表(`schema.sql`)
+3. 导入管理员表(`schema-admin.sql`)
+4. 按文件名顺序应用所有迁移 SQL(`migrations/` 下)
+5. **问你是否创建默认超级管理员 `admin / admin123`**(输入 `y` 回车即可,后面立刻能登进后台)
+
+最后会输出 `✅ 数据库初始化完成`。如果中间报错(比如密码不对),回到 §2.3 重置 root 密码,再跑一次。
+
+**验证表都建出来了**:
+```bash
+mysql -h127.0.0.1 -uzero -p'zh123456' zero -e "SHOW TABLES;"
+# 应输出十几张表:members  orders  withdrawals  recharges  fund_records  ...
+```
+
+### 3.4 安装依赖
 
 宝塔终端:
 ```bash
@@ -297,7 +338,7 @@ ls node_modules | head -5
 # 应看到:bcryptjs  cors  express  mysql2  ... 一堆文件夹
 ```
 
-### 3.4 配置 `.env`
+### 3.5 配置 `.env`
 
 宝塔终端:
 ```bash
@@ -324,7 +365,9 @@ cat .env
 chmod 600 .env
 ```
 
-### 3.5 启动测试(确认能跑)
+> ⚠️ 这里填的 `DB_USER=zero` `DB_PASS=zh123456` 必须跟 §2.2 宝塔建库时设的**完全一致**(否则 §3.7 PM2 一启动就 `access denied`)。
+
+### 3.6 启动测试(确认能跑)
 
 宝塔终端:
 ```bash
@@ -339,7 +382,7 @@ npx tsx server.ts
 ```
 按 `Ctrl+C` 停掉。接下来用 PM2 守护。
 
-### 3.6 PM2 添加项目(让后端 7×24 跑)
+### 3.7 PM2 添加项目(让后端 7×24 跑)
 
 宝塔左侧菜单 → **PM2 管理器** → 顶部 **添加项目** 按钮,在弹出框里这样填:
 
@@ -359,11 +402,11 @@ npx tsx server.ts
 点 **提交**。等 5 秒,回到 PM2 管理器列表,看到 `exchange-admin` 这一行右侧状态变 **绿点 + online** 即成功。
 
 > ⚠️ 如果状态是 **errored** 或 **stopped**,点这一行右侧 **日志** 按钮看报错。常见错误:
-> - `Cannot find module '../.env'` → 你 .env 文件没建,回 §3.4
+> - `Cannot find module '../.env'` → 你 .env 文件没建,回 §3.5
 > - `access denied for user 'zero'` → 你 .env 里 DB_PASS 跟 §2.2 宝塔建库时设的不一样,改一致
 > - `ECONNREFUSED 127.0.0.1:3306` → MySQL 没启,宝塔 → 软件商店 → MySQL → 启动
 
-### 3.7 添加站点(让 `/api/*` 能被外网访问)
+### 3.8 添加站点(让 `/api/*` 能被外网访问)
 
 > 🎯 这一步在宝塔左侧 **网站** 菜单,加一个站点,只为拿到一个 Nginx server 块,后端文件本身不靠它服务。
 
@@ -385,7 +428,7 @@ npx tsx server.ts
 
 点 **提交**。
 
-### 3.8 配置反向代理(/api/* → PM2 跑的 3001)
+### 3.9 配置反向代理(/api/* → PM2 跑的 3001)
 
 接着上一步,刚加完站点会自动跳到站点列表,找到 `exchange-admin.b.local` 这一行,**点它**(不是点右边「设置」按钮,而是点站点名),进入站点详情。
 
@@ -401,7 +444,7 @@ npx tsx server.ts
 
 点 **提交**。
 
-### 3.9 在 Nginx 配置里加 `/api/` 转发规则
+### 3.10 在 Nginx 配置里加 `/api/` 转发规则
 
 上一步的反向代理会自动生成一段 `proxy_pass`,但只覆盖根路径;我们要的是 `/api/*` 这一段。
 
@@ -425,7 +468,7 @@ location /api/ {
 
 > 🎯 这一步的效果:**外部访问 `http://3.1.38.13/api/health` 会被 Nginx 转到 `http://127.0.0.1:3001/api/health`** — 也就是 PM2 跑的那个后端。
 
-### 3.10 B 台防火墙
+### 3.11 B 台防火墙
 
 宝塔左侧菜单 → **安全** → 放行端口(顶部有「放行端口」按钮):
 
@@ -436,7 +479,7 @@ location /api/ {
 | `3001` | 备用直连(可不开放) | 视情况 |
 | `3306` | MySQL | **❌ 不要开公网** |
 
-### 3.11 B 台部署完成 — 自检
+### 3.12 B 台部署完成 — 自检
 
 宝塔终端:
 ```bash
