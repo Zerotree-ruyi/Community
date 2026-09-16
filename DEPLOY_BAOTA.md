@@ -229,109 +229,185 @@ DB_NAME=zero DB_USER=zero DB_PASS='zh123456' \
 
 ## ⚙️ 第 3 步:B 台 (3.1.38.13) — 部署后端代码
 
-### 3.1 SSH 登录 B 台,创建项目目录
+> 🎯 **这一节会带你按这个顺序在宝塔上点:**
+> 左侧菜单「**文件**」 → 进入 `/www/wwwroot/exchange-admin/` → 上传/拉取代码
+> → 左侧菜单「**PM2 管理器**」 → 添加项目
+> → 左侧菜单「**网站**」 → 添加站点(`exchange-admin-b.local`)
+> → 左侧菜单「**安全**」 → 放行端口
+
+### 3.1 创建项目根目录(SSH)
+
+宝塔左侧菜单 **终端**(宝塔自带 SSH 终端,免开 Puxt),逐行粘贴:
 
 ```bash
 mkdir -p /www/wwwroot/exchange-admin
 cd /www/wwwroot/exchange-admin
+pwd
+# 应输出:/www/wwwroot/exchange-admin
 ```
 
-### 3.2 上传代码
+> 📁 **本节全部操作都在这个目录下**:`/www/wwwroot/exchange-admin/`
+> 📂 代码最终位置:`/www/wwwroot/exchange-admin/admin/{src,server.ts,package.json,...}`
+> ⚠️ **不要**把代码直接放到 `/www/wwwroot/exchange-admin/`(会少一层 `admin/`)
 
-**方式 A — Git 拉取(推荐)**
+### 3.2 上传代码(选一种)
+
+#### 方式 A — Git 拉取(推荐)
+
+在宝塔终端里继续:
 ```bash
-yum install -y git   # 或 apt install git
+cd /www/wwwroot/exchange-admin
+yum install -y git   # CentOS / 或 apt install -y git (Ubuntu)
 git clone https://github.com/Zerotree-ruyi/Community.git .
+ls
+# 应看到:admin  src  public  package.json  DEPLOY_BAOTA.md ...
 cd admin
+ls
+# 应看到:server.ts  package.json  src  schema.sql  migrations  scripts ...
+pwd
+# 应输出:/www/wwwroot/exchange-admin/admin   ← 这个路径,后面 PM2 要用
 ```
 
-**方式 B — 本地压缩上传**(见 §0.3)
+#### 方式 B — 宝塔文件管理器上传(不用 SSH 命令)
+
+1. 宝塔左侧菜单 → **文件** → 顶部路径栏输入 `/www/wwwroot/exchange-admin` → 回车
+2. 看到空目录就对了(就是你 §3.1 mkdir 出来的)
+3. 点左上 **上传** 按钮 → 选 **上传文件**(不是上传目录)→ 选本地打包好的 `admin.zip`
+4. 上传完,**双击** `admin.zip` 进去看里面有什么(应该是 `admin/server.ts` `admin/package.json` ...)
+5. 点顶部路径栏右边 **解压** 按钮(或者右键 `admin.zip` → 解压)→ 解压到 **当前目录**
+6. 解压后,顶部路径栏回到 `/www/wwwroot/exchange-admin`,文件列表里应该多出一个 `admin/` 文件夹
+7. **点进 `admin/`** 看一眼,确认里面有 `server.ts`、`package.json`、`schema.sql`、`migrations/` 等
+
+最终路径必须是 `/www/wwwroot/exchange-admin/admin/` — **多一层 admin/ 是因为仓库根目录就叫 Community,解压后自然带了 admin/ 这一层**(或者 git clone 之后你 `cd admin` 也是这个效果)。
+
+**❌ 错误示范**(会导致后面 PM2 找不到 server.ts):
+```
+/www/wwwroot/exchange-admin/server.ts        ← 少了一层 admin/
+/www/wwwroot/exchange-admin/admin.zip       ← 解压完忘了点进去
+```
 
 ### 3.3 安装依赖
 
+宝塔终端:
 ```bash
 cd /www/wwwroot/exchange-admin/admin
 npm install --production
+# 等 1-3 分钟,看到 "added xxx packages" 即完成
+ls node_modules | head -5
+# 应看到:bcryptjs  cors  express  mysql2  ... 一堆文件夹
 ```
 
 ### 3.4 配置 `.env`
 
+宝塔终端:
 ```bash
+cd /www/wwwroot/exchange-admin/admin
 cp .env.example .env
 vi .env
 ```
 
-写入(**完整覆盖**文件内容):
-
+在 vi 里按 `i` 进入编辑模式,**完整替换**成下面内容:
 ```env
-# ─── 数据库连接(对应宝塔里建的 zero 库)───
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=zero
 DB_PASS=zh123456
 DB_NAME=zero
-
-# ─── 后端服务端口 ───
 PORT=3001
 ```
 
-> 🔒 `chmod 600 .env` 设仅 root 可读写。
+按 `Esc` → 输入 `:wq` → 回车 保存退出。
+然后:
+```bash
+cat .env
+# 确认输出上面那 6 行,没多没少
+chmod 600 .env
+```
 
-### 3.5 启动测试
+### 3.5 启动测试(确认能跑)
 
+宝塔终端:
 ```bash
 cd /www/wwwroot/exchange-admin/admin
 npx tsx server.ts
 ```
 
-看到类似下面的输出即成功:
+看到:
 ```
 ✅ Express API ready at http://localhost:3001
    Try: curl http://localhost:3001/api/health
 ```
-Ctrl+C 终止,接下来用 PM2 守护。
+按 `Ctrl+C` 停掉。接下来用 PM2 守护。
 
-### 3.6 PM2 守护进程
+### 3.6 PM2 添加项目(让后端 7×24 跑)
 
-宝塔面板 → **PM2 管理器** → **添加项目**:
+宝塔左侧菜单 → **PM2 管理器** → 顶部 **添加项目** 按钮,在弹出框里这样填:
 
-| 项 | 值 |
-|---|---|
-| 启动文件 | `server.ts` |
-| 启动方式 | **自定义启动命令** |
-| 运行目录 | `/www/wwwroot/exchange-admin/admin` |
-| 项目名称 | `exchange-admin` |
+| 表单项 | 你要填的值 | 说明 |
+|---|---|---|
+| **项目名称** | `exchange-admin` | 自己认得出就行 |
+| **运行目录** | `/www/wwwroot/exchange-admin/admin` | ⚠️ 这个路径里有 `/admin` 这一层 |
+| **启动文件** | `server.ts` | 因为我们用 tsx 跑 TypeScript |
+| **启动方式** | 选 **自定义启动命令** | 不要选「node」,那样找不到 tsx |
+| **项目端口** | `3001` | 与 .env 里的 PORT 一致 |
 
-**自定义启动命令** 填:
-
+**自定义启动命令** 那栏填:
 ```bash
 npx tsx server.ts
 ```
 
-或更稳(写环境):
-```bash
-NODE_ENV=production npx tsx server.ts
-```
+点 **提交**。等 5 秒,回到 PM2 管理器列表,看到 `exchange-admin` 这一行右侧状态变 **绿点 + online** 即成功。
 
-点 **提交**。PM2 会自动启动,在 PM2 管理器列表里看到 `exchange-admin` 状态为 `online` 即成功。
+> ⚠️ 如果状态是 **errored** 或 **stopped**,点这一行右侧 **日志** 按钮看报错。常见错误:
+> - `Cannot find module '../.env'` → 你 .env 文件没建,回 §3.4
+> - `access denied for user 'zero'` → 你 .env 里 DB_PASS 跟 §2.2 宝塔建库时设的不一样,改一致
+> - `ECONNREFUSED 127.0.0.1:3306` → MySQL 没启,宝塔 → 软件商店 → MySQL → 启动
 
-### 3.7 B 台 Nginx 反向代理(/api/* → :3001)
+### 3.7 添加站点(让 `/api/*` 能被外网访问)
 
-宝塔 → **网站** → 添加站点(只是为了拿到一个 Nginx 配置入口):
+> 🎯 这一步在宝塔左侧 **网站** 菜单,加一个站点,只为拿到一个 Nginx server 块,后端文件本身不靠它服务。
 
-- 域名:随便填,例如 `admin.local`
-- 根目录:`/www/wwwroot/exchange-admin/admin`(不会被实际访问,只是配置锚点)
-- PHP:**纯静态**
+宝塔左侧菜单 → **网站** → 右上角 **添加站点** 按钮:
 
-添加完成后,进 **设置** → **反向代理**:
+| 表单项 | 你要填的值 |
+|---|---|
+| **域名** | `exchange-admin.b.local` (本项目后台站点名,反正用户不会直接访问这个域名;后续要 https 就改真实域名) |
+| **根目录** | **改成** `/www/wwwroot/exchange-admin/admin` ⚠️ 不是默认的 `/www/wwwroot/exchange-admin-b.local` |
+| **FTP** | **不创建** |
+| **数据库** | **不创建** |
+| **PHP 版本** | **纯静态** ⚠️ 不要选 PHP-7.x / PHP-8.x |
+| **备注** | 随便写,比如 `后台 API 反代` |
 
-```
-代理名称: api
-目标 URL:  http://127.0.0.1:3001
-发送域名:  $host
-```
+> 📁 **根目录要点**:
+> - 宝塔默认会按域名生成根目录 `/www/wwwroot/exchange-admin.b.local/`
+> - **必须改成** `/www/wwwroot/exchange-admin/admin`(就是放后端代码的地方)
+> - 这个目录**不会被 Nginx 实际访问**(我们只走 `/api/`),但宝塔需要它存在一个真实路径
 
-提交。然后到 **配置文件**,在 `location /` 之前插入(或者直接把现有 `location /` 段替换):
+点 **提交**。
+
+### 3.8 配置反向代理(/api/* → PM2 跑的 3001)
+
+接着上一步,刚加完站点会自动跳到站点列表,找到 `exchange-admin.b.local` 这一行,**点它**(不是点右边「设置」按钮,而是点站点名),进入站点详情。
+
+或者:左侧 **网站** → 找到 `exchange-admin.b.local` → 右侧 **设置** 按钮。
+
+弹出站点设置面板,左侧子菜单选 **反向代理** → 顶部 **添加反向代理** 按钮:
+
+| 表单项 | 你要填的值 |
+|---|---|
+| **代理名称** | `api` |
+| **目标 URL** | `http://127.0.0.1:3001` |
+| **发送域名** | `$host` |
+
+点 **提交**。
+
+### 3.9 在 Nginx 配置里加 `/api/` 转发规则
+
+上一步的反向代理会自动生成一段 `proxy_pass`,但只覆盖根路径;我们要的是 `/api/*` 这一段。
+
+宝塔左侧菜单 → **网站** → 找到 `exchange-admin.b.local` → 右侧 **设置** → 左侧子菜单 **配置文件**。
+
+在打开的 Nginx 配置里,找到 `location / { ... }` 这一段,**把它替换**(或者在它之前**插入**)下面这段:
 
 ```nginx
 location /api/ {
@@ -345,73 +421,152 @@ location /api/ {
 }
 ```
 
-> 这样 B 台对外暴露 `http://3.1.38.13/api/*` 等同于 `http://127.0.0.1:3001/api/*`。
+点页面右上 **保存** 按钮。宝塔会自动 `nginx -t` 检查配置,无误后 reload。
 
-### 3.8 B 台防火墙
+> 🎯 这一步的效果:**外部访问 `http://3.1.38.13/api/health` 会被 Nginx 转到 `http://127.0.0.1:3001/api/health`** — 也就是 PM2 跑的那个后端。
 
-宝塔 → **安全** → 放行端口:
+### 3.10 B 台防火墙
+
+宝塔左侧菜单 → **安全** → 放行端口(顶部有「放行端口」按钮):
 
 | 端口 | 用途 | 给谁开 |
 |---|---|---|
-| 80 / 443 | Nginx | 公网 |
-| 3001 | 备用直连(可不开放) | 视情况 |
-| 3306 | MySQL | **不要开公网** |
+| `80` | Nginx (A 台反代用) | 公网 |
+| `443` | Nginx HTTPS(可选) | 公网 |
+| `3001` | 备用直连(可不开放) | 视情况 |
+| `3306` | MySQL | **❌ 不要开公网** |
 
-如果 A 台要反代到 B 台,确保 B 台 80(或 3001)对 A 台可达:
+### 3.11 B 台部署完成 — 自检
+
+宝塔终端:
 ```bash
-# 在 A 台执行
-curl http://3.1.38.13/api/health
-# 应返回 {"ok":true,...}
+# 本地测后端(应该 200)
+curl http://127.0.0.1:3001/api/health
+
+# 走 Nginx 测(应该 200)
+curl http://127.0.0.1/api/health
+# 或者从外网测(在 A 台执行):
+# curl http://3.1.38.13/api/health
 ```
+
+两个都返回 `{"ok":true,...}` 即 B 台部署成功。
 
 ---
 
 ## 🌐 第 4 步:A 台 (13.213.80.180) — 部署前台
 
+> 🎯 **这一节会带你按这个顺序在宝塔上点:**
+> 本地电脑执行 `npm run build` 生成 `dist/`
+> → 宝塔左侧菜单「**文件**」 → 进 `/www/wwwroot/trade/` → 上传 `dist/` 内容
+> → 左侧菜单「**网站**」 → 添加站点(`13.213.80.180` 或你的域名)
+> → 配 Nginx 反代 `/api/` → `3.1.38.13`
+
 ### 4.1 宝塔安装软件
 
-宝塔 → **软件商店** 安装:
+宝塔左侧菜单 → **软件商店**,安装:
 
 | 软件 | 版本 | 说明 |
 |---|---|---|
 | Nginx | 1.22+ | 静态站点 + 反代 |
 | Node.js | 20+ | 用于本地 build(Vite 需要) |
 
-### 4.2 本地 build 前台(在你自己的电脑上)
+### 4.2 本地 build 前台(在你自己的电脑上,**不是服务器**)
 
-```bash
+打开 Windows PowerShell(Win+R → 输入 `powershell` → 回车):
+```powershell
 cd "C:\Users\Administrator\Desktop\交易所设计 (Community)"
 npm install
 npm run build
 ```
 
-`dist/` 目录就是产物。
+等 1-2 分钟,看到类似 `built in 5.32s` 即完成。项目根目录会多出一个 `dist/` 文件夹。
 
-### 4.3 上传 dist 到 A 台
+打开看看:
+```powershell
+dir dist
+# 应看到: index.html  assets/  favicon.ico  ... 等
+```
 
-宝塔 → **文件** → `/www/wwwroot/trade` → 上传 `dist/` 整个文件夹内容。
-最终 A 台路径应是:`/www/wwwroot/trade/dist/{index.html,assets/,...}`
+> 📁 **`dist/` 里就是产物**,后面对 A 台就是只传这个文件夹。
+> ❌ 不要传整个 `Community/` 仓库给 A 台(A 台不需要后端代码)。
+
+### 4.3 上传 dist/ 到 A 台
+
+宝塔左侧菜单 → **文件** → 顶部路径栏输入 `/www/wwwroot/trade` → 回车。
+
+**如果目录不存在**(宝塔通常会自动建,不会的话就手动建):
+- 点顶部 **新建文件夹** → 名字填 `trade` → 确定
+
+接下来上传,有 2 种姿势:
+
+#### 姿势 A(推荐)— 压缩上传
+
+在本地 PowerShell 里把 dist 整个打成 zip(里面**不要**再套一层 dist 文件夹):
+```powershell
+cd "C:\Users\Administrator\Desktop\交易所设计 (Community)\dist"
+Compress-Archive -Path * -DestinationPath "..\trade-frontend.zip" -Force
+# 这一步会把 dist 里的 index.html / assets/... 压成 zip,zip 里直接是这些文件,不再有 dist/ 这一层
+```
+
+回到宝塔 **文件** 页面(`/www/wwwroot/trade/`):
+1. 点左上 **上传** → 上传文件 → 选 `trade-frontend.zip`
+2. 上传完,右键 `trade-frontend.zip` → **解压** → 选「解压到当前目录」
+3. 回到 `/www/wwwroot/trade/`,文件列表应能看到 `index.html`、`assets/` 等文件(没有 `dist/` 这一层)
+
+#### 姿势 B — 拖拽上传(文件少的项目)
+
+宝塔文件管理器支持拖拽上传:
+1. 打开本地 `dist/` 文件夹,**全选里面所有内容**(Ctrl+A),**不要**选外面的 dist 文件夹本身
+2. 拖到宝塔 `/www/wwwroot/trade/` 页面里
+
+最终 A 台路径必须是这个布局:
+```
+/www/wwwroot/trade/
+├── index.html
+├── assets/
+│   ├── index-xxxxxx.js
+│   ├── index-xxxxxx.css
+│   └── ...
+├── favicon.ico
+└── ...其他构建产物
+```
+
+❌ **错误示范**(会导致访问白屏):
+```
+/www/wwwroot/trade/dist/index.html            ← 多套了一层 dist
+/www/wwwroot/trade/Community/index.html       ← 把整个仓库传上来了
+/www/wwwroot/trade/                           ← 空的,只解压忘了
+```
 
 ### 4.4 添加站点
 
-宝塔 → **网站** → 添加站点:
+宝塔左侧菜单 → **网站** → 右上角 **添加站点**:
 
-| 项 | 值 |
+| 表单项 | 你要填的值 |
 |---|---|
-| 域名 | `13.213.80.180`(或你的域名如 `trade.example.com`) |
-| 根目录 | `/www/wwwroot/trade` |
-| PHP | **纯静态** |
+| **域名** | `13.213.80.180` (或你的真实域名如 `trade.example.com`) |
+| **根目录** | 宝塔默认会填 `/www/wwwroot/13.213.80.180`,**改成** `/www/wwwroot/trade` ⚠️ |
+| **FTP** | **不创建** |
+| **数据库** | **不创建** |
+| **PHP 版本** | **纯静态** ⚠️ |
+| **备注** | `前台站点` |
 
-### 4.5 A 台 Nginx 配置 — **关键:把 /api 反代到 B 台**
+> 📁 **根目录这一栏要改成 `/www/wwwroot/trade`**(就是 §4.3 上传 dist/ 的地方),不要用默认的 `/www/wwwroot/13.213.80.180/`,那个目录是空的。
 
-宝塔 → 网站 → `13.213.80.180` → **设置** → **配置文件**,把整段 `server { ... }` 替换为:
+点 **提交**。
+
+### 4.5 配置 Nginx 反代 `/api/`(让前端能调后端)
+
+宝塔左侧菜单 → **网站** → 找到 `13.213.80.180` 这一行 → 右侧 **设置** → 左侧子菜单 **配置文件**。
+
+在打开的 Nginx 配置里,**用下面这段整体替换** `server { ... }` 整段:
 
 ```nginx
 server {
     listen 80;
-    server_name 13.213.80.180;     # 换成你的域名,如 trade.example.com
+    server_name 13.213.80.180;     # 或你的域名,如 trade.example.com
 
-    root /www/wwwroot/trade/dist;
+    root /www/wwwroot/trade;
     index index.html;
 
     # SPA 路由 fallback — 所有前端路由都交回 index.html
@@ -427,10 +582,8 @@ server {
     }
 
     # ⭐ 反向代理后端到 B 台 (3.1.38.13)
-    #   - 走 B 台 80 → Nginx 再转发到 3001(等同 §3.7)
-    #   - 也可直连 B 台 3001,去掉 Nginx 那层
     location /api/ {
-        proxy_pass http://3.1.38.13:80/api/;
+        proxy_pass http://3.1.38.13/api/;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
