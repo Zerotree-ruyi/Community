@@ -4,7 +4,7 @@
 
 ```
                     ┌──────────────────────────────┐
-   用户浏览器  ─────►│  A 台 前台(13.213.80.180)   │
+   用户浏览器  ─────►│  A 台 前台(47.236.172.111)   │
                     │  Nginx (80/443)              │
                     │  └─ /www/wwwroot/trade/dist/ │
                     │     (Vite 静态构建产物)       │
@@ -12,7 +12,7 @@
                                   │  /api/* 请求转发
                                   ▼
                     ┌──────────────────────────────┐
-                    │  B 台 后台 (3.1.38.13)       │
+                    │  B 台 后台 (47.236.95.137)   │
                     │  PM2 (3001) + MySQL (3306)   │
                     │  ├─ admin/server.ts          │
                     │  └─ 数据库 zero              │
@@ -30,8 +30,8 @@
 
 | 服务器 | 角色 | 公网 IP | 必备组件 | 关键端口 |
 |---|---|---|---|---|
-| **A 台 前台** | 静态站点 | `13.213.80.180` | Nginx / Node.js(build 用) | 80, 443 |
-| **B 台 后台+DB** | API + 数据库 | `3.1.38.13` | Nginx / Node.js / PM2 / MySQL | 3001(PM2),3306(MySQL 仅本地),80(宝塔面板) |
+| **A 台 前台** | 静态站点 | `47.236.172.111` | Nginx / Node.js(build 用) | 80, 443 |
+| **B 台 后台+DB** | API + 数据库 | `47.236.95.137` | Nginx / Node.js / PM2 / MySQL | 3001(PM2),3306(MySQL 仅本地),80(宝塔面板) |
 | **C 台 异地备份** | 数据库快照 | `C.C.C.C`(自填,**异地机房**) | SSH server + crontab | 22(SSH) |
 
 ---
@@ -69,7 +69,7 @@ Community/                       ← 项目根
     └── dist/                    ← ✗ 不上传
 ```
 
-### 0.2 A 台(前台,13.213.80.180)— 要上传哪些
+### 0.2 A 台(前台,47.236.172.111)— 要上传哪些
 
 只上传前台运行必需的子目录/文件,**其余都不传**:
 
@@ -87,7 +87,7 @@ Community/
 
 **最省事的做法 — Git 拉整仓**(推荐):
 ```bash
-ssh root@13.213.80.180
+ssh root@47.236.172.111
 mkdir -p /www/wwwroot/trade && cd /www/wwwroot/trade
 git clone https://github.com/Zerotree-ruyi/Community.git .
 ```
@@ -101,7 +101,7 @@ Compress-Archive -Path src,public,index.html,package.json,vite.config.ts,postcss
 ```
 把 `trade-frontend.zip` 上传到 A 台 `/www/wwwroot/trade/` → 解压。
 
-### 0.3 B 台(后台,3.1.38.13)— 要上传哪些
+### 0.3 B 台(后台,47.236.95.137)— 要上传哪些
 
 只上传后台必需的 `admin/` 子目录:
 ```
@@ -131,7 +131,7 @@ Compress-Archive -Path src,server.ts,schema.sql,schema-admin.sql,migrations,scri
 
 **速查对照表**
 
-| 文件/目录 | A 台(前台 13.213.80.180) | B 台(后台 3.1.38.13) |
+| 文件/目录 | A 台(前台 47.236.172.111) | B 台(后台 47.236.95.137) |
 |---|:-:|:-:|
 | `src/` | ✅ | ❌ |
 | `public/` | ✅ | ❌ |
@@ -162,7 +162,7 @@ wget -O install.sh http://download.bt.cn/install/install-ubuntu_6.0.sh && sudo b
 
 ---
 
-## 🗄️ 第 2 步:B 台 (3.1.38.13) — 安装 MySQL + 创建数据库
+## 🗄️ 第 2 步:B 台 (47.236.95.137) — 安装 MySQL + 创建数据库
 
 > 🎯 **这一节只做两件事:**
 > ① 装 MySQL + PM2 + Nginx
@@ -235,7 +235,7 @@ mysql -h127.0.0.1 -uzero -p'zh123456' zero -e "SHOW TABLES;"
 
 ---
 
-## ⚙️ 第 3 步:B 台 (3.1.38.13) — 部署后端代码
+## ⚙️ 第 3 步:B 台 (47.236.95.137) — 部署后端代码
 
 > 🎯 **这一节会带你按这个顺序在宝塔上点:**
 > 左侧菜单「**文件**」 → 进入 `/www/wwwroot/exchange-admin/` → 上传/拉取代码
@@ -491,7 +491,7 @@ location /api/ {
 
 点页面右上 **保存** 按钮。宝塔会自动 `nginx -t` 检查配置,无误后 reload。
 
-> 🎯 这一步的效果:**外部访问 `http://3.1.38.13/api/health` 会被 Nginx 转到 `http://127.0.0.1:3001/api/health`** — 也就是 PM2 跑的那个后端。
+> 🎯 这一步的效果:**外部访问 `http://47.236.95.137/api/health` 会被 Nginx 转到 `http://127.0.0.1:3001/api/health`** — 也就是 PM2 跑的那个后端。
 
 ### 3.11 B 台防火墙
 
@@ -514,20 +514,20 @@ curl http://127.0.0.1:3001/api/health
 # 走 Nginx 测(应该 200)
 curl http://127.0.0.1/api/health
 # 或者从外网测(在 A 台执行):
-# curl http://3.1.38.13/api/health
+# curl http://47.236.95.137/api/health
 ```
 
 两个都返回 `{"ok":true,...}` 即 B 台部署成功。
 
 ---
 
-## 🌐 第 4 步:A 台 (13.213.80.180) — 部署前台
+## 🌐 第 4 步:A 台 (47.236.172.111) — 部署前台
 
 > 🎯 **这一节会带你按这个顺序在宝塔上点:**
 > 本地电脑执行 `npm run build` 生成 `dist/`
 > → 宝塔左侧菜单「**文件**」 → 进 `/www/wwwroot/trade/` → 上传 `dist/` 内容
-> → 左侧菜单「**网站**」 → 添加站点(`13.213.80.180` 或你的域名)
-> → 配 Nginx 反代 `/api/` → `3.1.38.13`
+> → 左侧菜单「**网站**」 → 添加站点(`47.236.172.111` 或你的域名)
+> → 配 Nginx 反代 `/api/` → `47.236.95.137`
 
 ### 4.1 宝塔安装软件
 
@@ -612,27 +612,27 @@ Compress-Archive -Path * -DestinationPath "..\trade-frontend.zip" -Force
 
 | 表单项 | 你要填的值 |
 |---|---|
-| **域名** | `13.213.80.180` (或你的真实域名如 `trade.example.com`) |
-| **根目录** | 宝塔默认会填 `/www/wwwroot/13.213.80.180`,**改成** `/www/wwwroot/trade` ⚠️ |
+| **域名** | `47.236.172.111` (或你的真实域名如 `trade.example.com`) |
+| **根目录** | 宝塔默认会填 `/www/wwwroot/47.236.172.111`,**改成** `/www/wwwroot/trade` ⚠️ |
 | **FTP** | **不创建** |
 | **数据库** | **不创建** |
 | **PHP 版本** | **纯静态** ⚠️ |
 | **备注** | `前台站点` |
 
-> 📁 **根目录这一栏要改成 `/www/wwwroot/trade`**(就是 §4.3 上传 dist/ 的地方),不要用默认的 `/www/wwwroot/13.213.80.180/`,那个目录是空的。
+> 📁 **根目录这一栏要改成 `/www/wwwroot/trade`**(就是 §4.3 上传 dist/ 的地方),不要用默认的 `/www/wwwroot/47.236.172.111/`,那个目录是空的。
 
 点 **提交**。
 
 ### 4.5 配置 Nginx 反代 `/api/`(让前端能调后端)
 
-宝塔左侧菜单 → **网站** → 找到 `13.213.80.180` 这一行 → 右侧 **设置** → 左侧子菜单 **配置文件**。
+宝塔左侧菜单 → **网站** → 找到 `47.236.172.111` 这一行 → 右侧 **设置** → 左侧子菜单 **配置文件**。
 
 在打开的 Nginx 配置里,**用下面这段整体替换** `server { ... }` 整段:
 
 ```nginx
 server {
     listen 80;
-    server_name 13.213.80.180;     # 或你的域名,如 trade.example.com
+    server_name 47.236.172.111;     # 或你的域名,如 trade.example.com
 
     root /www/wwwroot/trade;
     index index.html;
@@ -649,9 +649,9 @@ server {
         try_files $uri =404;
     }
 
-    # ⭐ 反向代理后端到 B 台 (3.1.38.13)
+    # ⭐ 反向代理后端到 B 台 (47.236.95.137)
     location /api/ {
-        proxy_pass http://3.1.38.13/api/;
+        proxy_pass http://47.236.95.137/api/;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -669,7 +669,7 @@ server {
 
 > 💡 如果你不想在 B 台 Nginx 配置,直接让 A 台穿透到 3001:
 > ```nginx
-> proxy_pass http://3.1.38.13:3001/api/;
+> proxy_pass http://47.236.95.137:3001/api/;
 > ```
 > 此时 B 台需开放 3001 端口。
 
@@ -682,7 +682,7 @@ server {
 ## 🔐 第 5 步:申请 SSL(两台都做,推荐)
 
 宝塔 → 网站 → **SSL** → **Let's Encrypt** → 申请 → **强制 HTTPS**。
-> 若没有域名只有 IP(`13.213.80.180`),SSL 用自签名或换 Let's Encrypt DNS 验证。
+> 若没有域名只有 IP(`47.236.172.111`),SSL 用自签名或换 Let's Encrypt DNS 验证。
 
 ---
 
@@ -696,23 +696,23 @@ curl http://127.0.0.1:3001/api/health
 
 ### 6.2 B 台 Nginx 测反代
 ```bash
-curl http://3.1.38.13/api/health
+curl http://47.236.95.137/api/health
 # 应返回 {"ok":true,...}
 ```
 
 ### 6.3 A 台测前端 + 反代
 ```bash
 # 前端页面(应返回 HTML)
-curl -I http://13.213.80.180
+curl -I http://47.236.172.111
 
 # 前端→后端反代(说明 A→B 通了)
-curl http://13.213.80.180/api/health
+curl http://47.236.172.111/api/health
 # 应该看到 {"ok":true,...}
 ```
 
 ### 6.4 浏览器访问
-- 前台:http://13.213.80.180(或 `https://trade.example.com`)
-- 后台:`http://3.1.38.13` 的反代路径(若做了 §3.7),或者直接 `http://3.1.38.13:3001`(仅内网)
+- 前台:http://47.236.172.111(或 `https://trade.example.com`)
+- 后台:`http://47.236.95.137` 的反代路径(若做了 §3.7),或者直接 `http://47.236.95.137:3001`(仅内网)
 
 ---
 
@@ -758,29 +758,29 @@ tail -f /www/wwwlogs/admin.access.log
 
 | 现象 | 排查 |
 |---|---|
-| 前端调 `/api/*` 报 CORS | B 台 `server.ts` 已开 `app.use(cors())` ✓。如果用 Nginx 反代,不会触发 CORS(同源)。若 A 台没反代直接调 `3.1.38.13:3001`,改用 §4.5 的 Nginx 反代。 |
+| 前端调 `/api/*` 报 CORS | B 台 `server.ts` 已开 `app.use(cors())` ✓。如果用 Nginx 反代,不会触发 CORS(同源)。若 A 台没反代直接调 `47.236.95.137:3001`,改用 §4.5 的 Nginx 反代。 |
 | 后端连不上 DB | 检查 B 台 `.env` 的 `DB_USER=zero` / `DB_PASS=zh123456` / `DB_NAME=zero`;`mysql -uzero -p'zh123456' zero` 在 B 台本地试连;看 PM2 日志是否有 `access denied`。 |
 | B 台 `public_ip` 一直显示内网 | B 台 `curl https://api.ipify.org` 试一下。若被墙,代码会自动切到 `pconline` / `icanhazip`(见 `admin/server.ts` 的 `PUBLIC_IP_SOURCES`)。 |
 | 前台白屏 | 浏览器控制台看 404。多半是 Nginx `try_files` 没配 — 检查 `location /` 块。 |
-| 前端调 API 返回 502 | A 台 Nginx 连不上 B 台。`curl http://3.1.38.13/api/health` 从 A 台试一下;检查 B 台安全组/防火墙 80(或 3001)是否放行。 |
+| 前端调 API 返回 502 | A 台 Nginx 连不上 B 台。`curl http://47.236.95.137/api/health` 从 A 台试一下;检查 B 台安全组/防火墙 80(或 3001)是否放行。 |
 | 前台访问慢/超时 | `proxy_read_timeout` 默认 60s 够用;若用了 Vite HMR 模式,把 A 台 `try_files` 留好。 |
 
 ---
 
 ## 🛟 第 9 步:C 台 — 数据库异地备份(A、B 全挂也保数据)
 
-> **目标**:即使 A 台(13.213.80.180)和 B 台(3.1.38.13)同时宕机/被销毁/数据被勒索加密,你的数据库完整快照仍在第三台机器上,几分钟就能拉起来。
+> **目标**:即使 A 台(47.236.172.111)和 B 台(47.236.95.137)同时宕机/被销毁/数据被勒索加密,你的数据库完整快照仍在第三台机器上,几分钟就能拉起来。
 
 ### 9.1 架构示意
 
 ```
                     ┌────────────────────────┐
-   用户浏览器 ───►   │ A 台 前台 13.213.80.180│
+   用户浏览器 ───►   │ A 台 前台 47.236.172.111│
                     └───────────┬────────────┘
                                 │ /api/*
                                 ▼
                     ┌────────────────────────┐
-                    │ B 台 后台 3.1.38.13    │
+                    │ B 台 后台 47.236.95.137│
                     │  ├─ PM2 (3001)         │
                     │  └─ MySQL zero/zero    │◄────── mysqldump
                     └────────────────────────┘  SSH 22        ▲
@@ -839,13 +839,13 @@ ssh-keygen -t ed25519 -N '' -f /root/.ssh/zero_backup -C "zero-db-backup"
 把公钥拷到 B 台:
 ```bash
 # 在 C 台执行,把公钥写进 B 台 root 的 authorized_keys
-ssh-copy-id -i /root/.ssh/zero_backup.pub root@3.1.38.13
+ssh-copy-id -i /root/.ssh/zero_backup.pub root@47.236.95.137
 # 首次会问 B 台 root 密码,输入即可
 ```
 
 验证免密通:
 ```bash
-ssh -i /root/.ssh/zero_backup root@3.1.38.13 'echo ok && date && hostname'
+ssh -i /root/.ssh/zero_backup root@47.236.95.137 'echo ok && date && hostname'
 # 应直接打印 ok + 时间,不问密码
 ```
 
@@ -855,7 +855,7 @@ ssh -i /root/.ssh/zero_backup root@3.1.38.13 'echo ok && date && hostname'
 
 SSH 进 B 台:
 ```bash
-ssh root@3.1.38.13
+ssh root@47.236.95.137
 mysql -uroot -p   # 输入宝塔 root 密码
 ```
 
@@ -888,7 +888,7 @@ cat > /usr/local/bin/backup-zero-db.sh <<'SCRIPT_EOF'
 # 用法: /usr/local/bin/backup-zero-db.sh [daily|weekly|monthly]
 # =========================================================================: /root/.ssh/zero_backup
 #   B 台 SSH 主机与 SSH 用户
-B_HOST="3.1.38.13"
+B_HOST="47.236.95.137"
 B_SSH_USER="root"
 B_SSH_KEY="/root/.ssh/zero_backup"
 B_DB_USER="zero_backup"
@@ -970,7 +970,7 @@ chmod +x /usr/local/bin/backup-zero-db.sh
 ```bash
 /usr/local/bin/backup-zero-db.sh daily
 # 应输出:
-#   [2026-09-16 03:00:01] [daily] 开始从 3.1.38.13 拉取 zero → ...
+#   [2026-09-16 03:00:01] [daily] 开始从 47.236.95.137 拉取 zero → ...
 #   [2026-09-16 03:00:08] [daily] ✅ 备份完成: /backup/zero/daily/zero_daily_20260916_030001.sql.gz (2.3M)
 ```
 
@@ -1105,8 +1105,8 @@ mysqlbinlog --stop-datetime='2026-09-16 14:23:45' /www/server/data/mysql-bin.* |
 
 | 服务器 | 公网 IP | 数据库 | 账号 | 密码 | 关键端口 |
 |---|---|---|---|---|---|
-| **A 台 前台** | `13.213.80.180` | — | — | — | 80 / 443 |
-| **B 台 后台** | `3.1.38.13` | `zero` | `zero` | `zh123456` | 80 / 443 / 3001 |
+| **A 台 前台** | `47.236.172.111` | — | — | — | 80 / 443 |
+| **B 台 后台** | `47.236.95.137` | `zero` | `zero` | `zh123456` | 80 / 443 / 3001 |
 | MySQL | 仅 B 台本地 | `zero` | `zero` | `zh123456` | 3306(**不开公网**) |
 | **C 台 异地备份** | `C.C.C.C`(自填) | — | — | — | 22(SSH) |
 
@@ -1115,11 +1115,11 @@ mysqlbinlog --stop-datetime='2026-09-16 14:23:45' /www/server/data/mysql-bin.* |
 ## 🗂️ 关键文件路径速查
 
 ```
-A 台 (13.213.80.180):
+A 台 (47.236.172.111):
   /www/wwwroot/trade/dist/                  # 前端构建产物
   /www/wwwlogs/trade.access.log             # Nginx 访问日志
 
-B 台 (3.1.38.13):
+B 台 (47.236.95.137):
   /www/wwwroot/exchange-admin/admin/        # 后端源码
   /www/wwwroot/exchange-admin/admin/.env    # 数据库密码(chmod 600!)
   /www/wwwlogs/admin.access.log             # Nginx 访问日志
@@ -1145,11 +1145,11 @@ C 台 (C.C.C.C,异地备份):
 - [ ] B 台 `.env` 已写入 5 个 DB_* + PORT=3001
 - [ ] B 台 `pm2 logs exchange-admin` 显示 `Express API ready`
 - [ ] B 台 `curl http://127.0.0.1:3001/api/health` 返回 200
-- [ ] B 台 Nginx `location /api/` 已加,`curl http://3.1.38.13/api/health` 返回 200
+- [ ] B 台 Nginx `location /api/` 已加,`curl http://47.236.95.137/api/health` 返回 200
 - [ ] A 台 `dist/` 已上传到 `/www/wwwroot/trade/dist/`
-- [ ] A 台 Nginx 配置已加 `location /api/ { proxy_pass http://3.1.38.13:80/api/; }`
-- [ ] A 台 `curl http://13.213.80.180/api/health` 返回 200(说明前后台贯通)
-- [ ] 浏览器访问 `http://13.213.80.180` 看到登录页
+- [ ] A 台 Nginx 配置已加 `location /api/ { proxy_pass http://47.236.95.137:80/api/; }`
+- [ ] A 台 `curl http://47.236.172.111/api/health` 返回 200(说明前后台贯通)
+- [ ] 浏览器访问 `http://47.236.172.111` 看到登录页
 
 ### 异地备份(§9)
 - [ ] C 台是**异地**机房,系统装好
@@ -1165,4 +1165,4 @@ C 台 (C.C.C.C,异地备份):
 
 ---
 
-部署完成后,前台用户在 `http://13.213.80.180` 看到的就是线上版本,所有 `/api/*` 请求经 A 台 Nginx 透明转发到 B 台后端,后端从 B 台 MySQL 的 `zero` 库读写数据。
+部署完成后,前台用户在 `http://47.236.172.111` 看到的就是线上版本,所有 `/api/*` 请求经 A 台 Nginx 透明转发到 B 台后端,后端从 B 台 MySQL 的 `zero` 库读写数据。
