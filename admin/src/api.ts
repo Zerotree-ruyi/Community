@@ -370,4 +370,34 @@ export const api = {
     const qs = q.toString() ? `?${q}` : "";
     return request<{ data: DigitalWalletRow[]; total: number; limit: number; offset: number }>(`/wallets/digital${qs}`);
   },
+
+  // 员工 IP 白名单 CRUD(super 专属)
+  listEmployeeIpRules: (employeeId: number) =>
+    request<{ data: IpRule[] }>(`/admin/employees/${employeeId}/ip-rules`),
+
+  addEmployeeIpRule: (employeeId: number, ip: string, note: string) =>
+    request<{ ok: boolean; id: number }>(`/admin/employees/${employeeId}/ip-rules`, {
+      method: "POST",
+      body: JSON.stringify({ ip, note }),
+    }),
+
+  deleteEmployeeIpRule: (employeeId: number, ruleId: number) =>
+    request<{ ok: boolean }>(`/admin/employees/${employeeId}/ip-rules/${ruleId}`, {
+      method: "DELETE",
+    }),
+
+  replaceEmployeeIpRules: (employeeId: number, ips: { ip: string; note?: string }[]) =>
+    request<{ ok: boolean }>(`/admin/employees/${employeeId}/ip-rules`, {
+      method: "PUT",
+      body: JSON.stringify({ ips }),
+    }),
 };
+
+// 员工 IP 白名单单条规则
+export interface IpRule {
+  id: number;
+  ip: string;
+  note: string;
+  created_by: number;
+  created_at: string;
+}

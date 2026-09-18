@@ -59,7 +59,7 @@ export function PositionsPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const url = `http://localhost:3001/api/orders/mine?member_id=${user.id}&limit=100`;
+      const url = `/api/orders/mine?member_id=${user.id}&limit=100`;
       const r = await fetch(url);
       const data = await r.json();
       setOrders(data.data ?? []);
@@ -77,7 +77,7 @@ export function PositionsPage() {
   useEffect(() => {
     const tick = async () => {
       try {
-        const r = await fetch('http://localhost:3001/api/orders/settle-due', { method: 'POST' });
+        const r = await fetch('/api/orders/settle-due', { method: 'POST' });
         const d = await r.json();
         if (d?.settled?.length) {
           // 有订单结算了 → 重新拉订单 + 刷新当前用户余额

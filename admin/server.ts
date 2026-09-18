@@ -40,9 +40,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 请求日志
+// 请求日志(静默高频 settle-due 兜底,避免 2 秒一条刷屏)
 app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.path}`);
+  if (req.path !== "/api/orders/settle-due") {
+    console.log(`[${new Date().toISOString()}] ${req.path}`);
+  }
   next();
 });
 
@@ -66,6 +68,23 @@ function ipRegion(ip: string): string {
   if (/^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(ip)) return "内网";
   if (/^(0\.0\.0\.0|255\.255\.255\.255)$/.test(ip)) return "未知";
   return "公网";
+}
+
+// ─── 员工 IP 白名单 ────────────────────────────────────────────────────────
+// 加载某员工的白名单(空数组 = 不限制)。super 直接返回空数组,不受限。
+async function loadIpWhitelist(adminId: number, role: string): Promise<string[]> {
+  if (role === "super") return [];
+  const [rows] = await db.query(
+    `SELECT ip FROM admin_ip_whitelist WHERE admin_id = ?`,
+    [adminId]
+  );
+  return (rows as any[]).map(r => String(r.ip));
+}
+
+// 校验 IP 是否在白名单(空数组 = 不限制)
+function isIpAllowed(clientIp: string, whitelist: string[]): boolean {
+  if (whitelist.length === 0) return true;
+  return whitelist.includes(clientIp);
 }
 
 // 健康检查
@@ -442,6 +461,14 @@ app.post("/api/admin/login", async (req, res) => {
       return res.status(401).json({ error: "wrong_password", message: "密码错误" });
     }
     const ip = getClientIp(req);
+    // IP 白名单校验(员工角色才生效,super 不受限)
+    const whitelist = await loadIpWhitelist(admin.id, admin.role);
+    if (!isIpAllowed(ip, whitelist)) {
+      return res.status(403).json({
+        error: "ip_not_allowed",
+        message: "当前 IP 不在白名单内,无法登录",
+      });
+    }
     // 更新最后登录时间 + IP
     await db.query(
       "UPDATE admin_users SET last_login_time = NOW(), last_login_ip = ? WHERE id = ?",
@@ -812,7 +839,13 @@ app.get("/api/admin/employees/:id", async (req, res) => {
     );
     if ((rows as any[]).length === 0)
       return res.status(404).json({ error: "not_found" });
-    res.json({ employee: (rows as any[])[0] });
+    const emp = (rows as any[])[0];
+    const [ipRows] = await db.query(
+      `SELECT id, ip, note, created_by, created_at
+         FROM admin_ip_whitelist WHERE admin_id = ? ORDER BY id DESC`,
+      [id]
+    );
+    res.json({ employee: { ...emp, ip_rules: ipRows } });
   } catch (err: any) {
     console.error("[employees/:id GET]", err);
     res.status(500).json({ error: "server_error", message: err.message });
@@ -995,6 +1028,115 @@ app.delete("/api/admin/employees/:id", async (req, res) => {
     res.json({ ok: true, reassignedTo: newAgentId });
   } catch (err: any) {
     console.error("[employees DELETE]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// ─── 员工 IP 白名单 CRUD(super 专属) ─────────────────────────────────────
+
+// 列出某员工的白名单
+app.get("/api/admin/employees/:id/ip-rules", async (req, res) => {
+  try {
+    if (!(await requireRole(req, res, ["super"]))) return;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0)
+      return res.status(400).json({ error: "invalid_id" });
+    const [rows] = await db.query(
+      `SELECT id, ip, note, created_by, created_at
+         FROM admin_ip_whitelist WHERE admin_id = ? ORDER BY id DESC`,
+      [id]
+    );
+    res.json({ data: rows });
+  } catch (err: any) {
+    console.error("[employees/:id/ip-rules GET]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// 添加一条
+app.post("/api/admin/employees/:id/ip-rules", async (req, res) => {
+  try {
+    const guard = await requireRole(req, res, ["super"]);
+    if (!guard) return;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0)
+      return res.status(400).json({ error: "invalid_id" });
+    const { ip, note } = req.body ?? {};
+    const ipStr = String(ip ?? "").trim();
+    if (!ipStr) {
+      return res.status(400).json({ error: "invalid_input", message: "请输入 IP" });
+    }
+    if (ipStr.length > 45) {
+      return res.status(400).json({ error: "invalid_input", message: "IP 过长" });
+    }
+    try {
+      const [r] = await db.query(
+        `INSERT INTO admin_ip_whitelist (admin_id, ip, note, created_by) VALUES (?,?,?,?)`,
+        [id, ipStr, String(note ?? "").slice(0, 128), guard.id]
+      );
+      res.json({ ok: true, id: (r as any).insertId });
+    } catch (e: any) {
+      if (e?.code === "ER_DUP_ENTRY") {
+        return res.status(400).json({ error: "duplicate_ip", message: "该 IP 已在白名单内" });
+      }
+      throw e;
+    }
+  } catch (err: any) {
+    console.error("[employees/:id/ip-rules POST]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// 删除一条
+app.delete("/api/admin/employees/:id/ip-rules/:ruleId", async (req, res) => {
+  try {
+    if (!(await requireRole(req, res, ["super"]))) return;
+    const id = Number(req.params.id);
+    const ruleId = Number(req.params.ruleId);
+    if (!Number.isFinite(id) || !Number.isFinite(ruleId))
+      return res.status(400).json({ error: "invalid_id" });
+    await db.query(
+      `DELETE FROM admin_ip_whitelist WHERE id = ? AND admin_id = ?`,
+      [ruleId, id]
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[employees/:id/ip-rules DELETE]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// 整组覆盖(给 EditEmployeeModal 一次性保存)
+app.put("/api/admin/employees/:id/ip-rules", async (req, res) => {
+  try {
+    const guard = await requireRole(req, res, ["super"]);
+    if (!guard) return;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0)
+      return res.status(400).json({ error: "invalid_id" });
+    const ips: Array<{ ip: string; note?: string }> = Array.isArray(req.body?.ips) ? req.body.ips : [];
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(`DELETE FROM admin_ip_whitelist WHERE admin_id = ?`, [id]);
+      for (const r of ips) {
+        const ipStr = String(r?.ip ?? "").trim();
+        if (!ipStr) continue;
+        await conn.query(
+          `INSERT INTO admin_ip_whitelist (admin_id, ip, note, created_by) VALUES (?,?,?,?)`,
+          [id, ipStr, String(r?.note ?? "").slice(0, 128), guard.id]
+        );
+      }
+      await conn.commit();
+      res.json({ ok: true });
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (err: any) {
+    console.error("[employees/:id/ip-rules PUT]", err);
     res.status(500).json({ error: "server_error", message: err.message });
   }
 });

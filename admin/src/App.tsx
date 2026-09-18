@@ -3903,6 +3903,7 @@ type Employee = {
   last_login_time: string | null;
   created_at: string;
   customer_count: number;
+  ip_rules?: IpRule[];
 };
 
 function EmployeesPage() {
@@ -3914,6 +3915,7 @@ function EmployeesPage() {
     | { mode: "create" }
     | { mode: "resetCode"; newCode: string }
     | { mode: "delete"; id: number; username: string }
+    | { mode: "edit"; employee: Employee }
   >(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
@@ -4044,6 +4046,13 @@ function EmployeesPage() {
                   {emp.role !== "super" ? (
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                       <button
+                        onClick={() => setModal({ mode: "edit", employee: emp })}
+                        title="编辑 display_name / role / IP 白名单"
+                        style={actionBtnStyle("#722ed1")}
+                      >
+                        编辑
+                      </button>
+                      <button
                         onClick={() => resetCode(emp.id)}
                         title="作废旧码,生成新码"
                         style={actionBtnStyle("#1677ff")}
@@ -4113,6 +4122,16 @@ function EmployeesPage() {
           username={modal.username}
           onClose={() => setModal(null)}
           onDeleted={() => { setModal(null); reload(); }}
+          onError={(m) => flash("err", m)}
+        />
+      )}
+
+      {/* 编辑(含 IP 白名单) */}
+      {modal?.mode === "edit" && (
+        <EditEmployeeModal
+          employee={modal.employee}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); reload(); }}
           onError={(m) => flash("err", m)}
         />
       )}
@@ -4281,6 +4300,212 @@ function DeleteEmployeeModal({ id, username, onClose, onDeleted, onError }: {
           >取消</button>
           <button className="btn-danger" onClick={submit} disabled={busy}>
             {busy ? "删除中…" : "确认删除"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditEmployeeModal({ employee, onClose, onSaved, onError }: {
+  employee: Employee; onClose: () => void; onSaved: () => void; onError: (m: string) => void;
+}) {
+  // 表单 state
+  const [displayName, setDisplayName] = useState(employee.display_name || "");
+  const [role, setRole] = useState<"admin" | "operator">(employee.role === "operator" ? "operator" : "admin");
+  // IP 白名单 — 本地编辑态(逐条增删)
+  const [rules, setRules] = useState<IpRule[]>(employee.ip_rules ?? []);
+  const [newIp, setNewIp] = useState("");
+  const [newNote, setNewNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // 拉详情(确保 ip_rules 最新 — 列表里没带,只有详情接口才返回)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const d = await api.listEmployeeIpRules(employee.id);
+        if (alive) setRules(d.data ?? []);
+      } catch { /* 静默 — 用 employee.ip_rules 兜底 */ }
+    })();
+    return () => { alive = false; };
+  }, [employee.id]);
+
+  const addRule = () => {
+    const ip = newIp.trim();
+    if (!ip) return;
+    if (rules.some(r => r.ip === ip)) {
+      onError("该 IP 已在白名单内");
+      return;
+    }
+    // 临时 id 用负数标记(后端真实 id 在保存后回填)
+    setRules([{ id: -Date.now(), ip, note: newNote.trim(), created_by: 0, created_at: "" }, ...rules]);
+    setNewIp("");
+    setNewNote("");
+  };
+
+  const removeRule = (ruleId: number) => {
+    setRules(rules.filter(r => r.id !== ruleId));
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      // 1) 保存 display_name + role
+      const r1 = await fetch(`/api/admin/employees/${employee.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: displayName.trim(), role }),
+      });
+      const d1 = await r1.json().catch(() => ({}));
+      if (!r1.ok) return onError(d1.message || "保存基本信息失败");
+
+      // 2) 整组覆盖 IP 白名单
+      const payload = rules.map(r => ({ ip: r.ip, note: r.note }));
+      const r2 = await api.replaceEmployeeIpRules(employee.id, payload);
+      void r2;
+
+      onSaved();
+    } catch (e: any) {
+      onError(e?.message || "网络错误");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={modalBackdropStyle} onClick={onClose}>
+      <div style={{ ...modalCardStyle, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 18, color: "#222" }}>
+          编辑员工 <span style={{ color: "#722ed1" }}>{employee.username}</span>
+        </h3>
+
+        {/* 显示名 */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 13, color: "#333", marginBottom: 4 }}>
+            显示名
+          </label>
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            maxLength={64}
+            style={{
+              width: "100%", padding: 8, border: "1px solid #ddd",
+              borderRadius: 4, fontSize: 13, boxSizing: "border-box", background: "#fff",
+            }}
+          />
+        </div>
+
+        {/* 角色 */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, color: "#333", marginBottom: 4 }}>
+            角色
+          </label>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as "admin" | "operator")}
+            style={{
+              width: "100%", padding: 8, border: "1px solid #ddd",
+              borderRadius: 4, fontSize: 13, boxSizing: "border-box", background: "#fff",
+            }}
+          >
+            <option value="admin">管理员</option>
+            <option value="operator">操作员</option>
+          </select>
+        </div>
+
+        {/* IP 白名单 */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 13, color: "#333", marginBottom: 4 }}>
+            IP 白名单
+            <span style={{ color: "#999", fontWeight: "normal", marginLeft: 8, fontSize: 12 }}>
+              (留空 = 不限制;super 始终不受限)
+            </span>
+          </label>
+
+          {/* 新增行 */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              value={newIp}
+              onChange={(e) => setNewIp(e.target.value)}
+              placeholder="IP 地址,例如 192.168.1.100"
+              maxLength={45}
+              style={{
+                flex: "0 0 200px", padding: 7, border: "1px solid #ddd",
+                borderRadius: 4, fontSize: 13, background: "#fff",
+              }}
+            />
+            <input
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              placeholder="备注(选填)"
+              maxLength={128}
+              style={{
+                flex: 1, padding: 7, border: "1px solid #ddd",
+                borderRadius: 4, fontSize: 13, background: "#fff",
+              }}
+            />
+            <button
+              onClick={addRule}
+              disabled={!newIp.trim()}
+              style={{
+                padding: "7px 14px", fontSize: 13, cursor: "pointer",
+                background: "#1677ff", color: "#fff", border: "none", borderRadius: 4,
+                opacity: newIp.trim() ? 1 : 0.5,
+              }}
+            >添加</button>
+          </div>
+
+          {/* 现有规则列表 */}
+          <div style={{
+            border: "1px solid #eee", borderRadius: 4, maxHeight: 200, overflowY: "auto",
+            background: "#fafafa",
+          }}>
+            {rules.length === 0 ? (
+              <div style={{ padding: 16, textAlign: "center", color: "#999", fontSize: 13 }}>
+                暂无白名单 — 该员工登录不受 IP 限制
+              </div>
+            ) : (
+              rules.map(r => (
+                <div
+                  key={r.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "8px 12px", borderBottom: "1px solid #eee",
+                    fontSize: 13, background: "#fff",
+                  }}
+                >
+                  <span style={{ fontFamily: "monospace", color: "#1677ff", fontWeight: 600 }}>
+                    {r.ip}
+                  </span>
+                  <span style={{ flex: 1, color: "#666", fontSize: 12 }}>
+                    {r.note || <span style={{ color: "#ccc" }}>(无备注)</span>}
+                  </span>
+                  <button
+                    onClick={() => removeRule(r.id)}
+                    style={{
+                      padding: "3px 10px", fontSize: 12, cursor: "pointer",
+                      background: "#fff", color: "#ff4d4f",
+                      border: "1px solid #ffccc7", borderRadius: 3,
+                    }}
+                  >删除</button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 底部按钮 */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: "7px 16px", fontSize: 14, cursor: "pointer",
+              background: "#fff", border: "1px solid #d9d9d9", borderRadius: 4, color: "#555",
+            }}
+          >取消</button>
+          <button className="btn-primary" onClick={submit} disabled={busy}>
+            {busy ? "保存中…" : "保存"}
           </button>
         </div>
       </div>

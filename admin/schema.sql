@@ -1,23 +1,28 @@
 -- ============================================
 -- 皮总团队交易所 - MySQL 数据库表结构
 -- 适用于 MySQL 8.0+
+--
+-- ⚠️ 不要在这里写 CREATE DATABASE / USE,避免硬编码库名覆盖调用方的配置
+-- 调用方应该通过以下任一方式指定数据库:
+--   1. mysql -uroot -p <DB_NAME> < schema.sql
+--   2. 先 mysql -uroot -p -e "USE <DB_NAME>; SOURCE schema.sql;"
 -- ============================================
 
 -- 强制连接字符集(Windows cmd 默认 GBK 会让中文 ENUM 乱码)
 SET NAMES utf8mb4;
 
-CREATE DATABASE IF NOT EXISTS `exchange_db`
-  DEFAULT CHARACTER SET utf8mb4
-  DEFAULT COLLATE utf8mb4_unicode_ci;
-
-USE `exchange_db`;
-
 -- 会员表
 CREATE TABLE IF NOT EXISTS `members` (
   `id`              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `account`         VARCHAR(64)   NOT NULL COMMENT '账号',
+  `nickname`        VARCHAR(64)   DEFAULT NULL COMMENT '昵称',
+  `phone`           VARCHAR(32)   DEFAULT NULL COMMENT '手机号',
+  `email`           VARCHAR(128)  DEFAULT NULL COMMENT '邮箱',
+  `gender`          ENUM('男','女','保密') NOT NULL DEFAULT '保密' COMMENT '性别',
+  `remark`          VARCHAR(255)  DEFAULT '' COMMENT '备注',
   `password_hash`   VARCHAR(255)  NOT NULL COMMENT '登录密码 (bcrypt)',
   `fund_password`   VARCHAR(255)  DEFAULT NULL COMMENT '资金密码',
+  `session_token`   VARCHAR(64)   NOT NULL DEFAULT '' COMMENT '会话令牌(每次登录/被踢时刷新)',
   `status`          TINYINT(1)    NOT NULL DEFAULT 1 COMMENT '1=正常 0=禁用',
   `balance`         DECIMAL(18,2) NOT NULL DEFAULT 0.00 COMMENT '可用余额',
   `frozen`          DECIMAL(18,2) NOT NULL DEFAULT 0.00 COMMENT '冻结金额',

@@ -175,6 +175,7 @@ export function LoginPage() {
     if (error === 'not_found' || error === 'wrong_password')
       return '账号或密码错误';
     if (error === 'account_disabled') return '账号已被禁用';
+    if (error === 'ip_not_allowed') return '当前 IP 不在白名单内,请联系超级管理员';
     if (error === 'invalid_input') return '请输入账号和密码';
     return '登录失败,请重试';
   })();

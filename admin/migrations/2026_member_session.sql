@@ -9,7 +9,7 @@
 --     重新生成 UUID → 前台下次 refresh 发现不一致 → 自动登出
 -- ============================================
 
-USE `exchange_db`;
+-- 不在文件里 USE,调用方已通过 mysql -D 参数指定了目标库
 
 ALTER TABLE `members`
   ADD COLUMN `session_token` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '会话令牌(每次登录/被踢时刷新)' AFTER `fund_password`;

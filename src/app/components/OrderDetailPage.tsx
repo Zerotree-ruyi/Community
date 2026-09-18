@@ -55,7 +55,7 @@ export function OrderDetailPage() {
   useEffect(() => {
     if (!user || !id) return;
     setLoading(true);
-    fetch(`http://localhost:3001/api/orders/${id}?member_id=${user.id}`)
+    fetch(`/api/orders/${id}?member_id=${user.id}`)
       .then(r => r.json())
       .then(data => {
         if (data.order) setOrder(data.order);

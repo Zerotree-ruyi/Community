@@ -3,7 +3,7 @@
 -- ============================================
 SET NAMES utf8mb4;
 
-USE `exchange_db`;
+-- 不在文件里 USE,调用方已通过 mysql -D 参数指定了目标库
 
 CREATE TABLE IF NOT EXISTS `admin_users` (
   `id`              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
