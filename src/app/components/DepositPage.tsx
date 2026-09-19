@@ -42,6 +42,17 @@ Thank you for your support and trust.
 Please return to the previous page.`}
         </p>
 
+        {/* 联系客服 */}
+        <a
+          href="https://google.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full bg-[#1a1a1a] border border-[#c4f82a] text-[#c4f82a] py-3.5 rounded-xl font-semibold hover:bg-[#c4f82a]/10 transition-colors flex items-center justify-center gap-2 mb-3"
+        >
+          <MessageCircle className="w-4 h-4" />
+          <span>Click Here Contact Our Online Service</span>
+        </a>
+
         {/* 返回按钮 */}
         <button
           onClick={() => navigate(-1)}
