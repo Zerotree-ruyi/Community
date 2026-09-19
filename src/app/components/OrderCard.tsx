@@ -153,11 +153,11 @@ export function OrderCard({ order, onClick, onCopy, copiedId = null }: OrderCard
       {/* 字段列表(右侧留出箭头空间) */}
       <div className="pr-7">
         {/* 货币 */}
-        <Row label={t('orders.card.currency') || '货币'} value={currency} />
+        <Row label={t('orders.card.currency') || 'Currency'} value={currency} />
 
         {/* 订单编号 — 带红色复制按钮 */}
         <Row
-          label={t('orders.card.orderId') || '订单编号'}
+          label={t('orders.card.orderId') || 'Order ID'}
           valueNode={
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm">{orderId}</span>
@@ -167,8 +167,8 @@ export function OrderCard({ order, onClick, onCopy, copiedId = null }: OrderCard
                 className="inline-flex items-center gap-1 text-xs text-[#c4f82a] active:scale-95"
               >
                 {copiedId === order.id
-                  ? <><Check className="w-3 h-3" /><span>{t('orders.detail.copied') || '已复制'}</span></>
-                  : <><Copy className="w-3 h-3" /><span>{t('orders.card.copy') || '复制'}</span></>}
+                  ? <><Check className="w-3 h-3" /><span>{t('orders.detail.copied') || 'Copied'}</span></>
+                  : <><Copy className="w-3 h-3" /><span>{t('orders.card.copy') || 'Copy'}</span></>}
               </button>
             </div>
           }
@@ -176,42 +176,42 @@ export function OrderCard({ order, onClick, onCopy, copiedId = null }: OrderCard
 
         {/* 订单金额 */}
         <Row
-          label={t('orders.card.amount') || '订单金额'}
+          label={t('orders.card.amount') || 'Order Amount'}
           value={amount}
           valueClass="font-mono"
         />
 
         {/* 利润金额 */}
         <Row
-          label={t('orders.card.profit') || '利润金额'}
+          label={t('orders.card.profit') || 'Profit'}
           value={`${profitSign}${profit}`}
           valueClass={`font-mono ${profitColor}`}
         />
 
         {/* 购买方向 — 主题绿 */}
         <Row
-          label={t('orders.card.direction') || '购买方向'}
+          label={t('orders.card.direction') || 'Direction'}
           value={dirText}
           valueClass="text-[#c4f82a] font-medium"
         />
 
         {/* 收益率 */}
         <Row
-          label={t('orders.card.returnRate') || '收益率'}
+          label={t('orders.card.returnRate') || 'Return Rate'}
           value={returnRateText}
           valueClass="font-mono text-[#c4f82a] font-medium"
         />
 
         {/* 计费时间 */}
         <Row
-          label={t('orders.card.billingTime') || '计费时间'}
+          label={t('orders.card.billingTime') || 'Billing Time'}
           value={periodText}
           valueClass="font-mono"
         />
 
         {/* 订货时间 */}
         <Row
-          label={t('orders.card.orderTime') || '订货时间'}
+          label={t('orders.card.orderTime') || 'Order Time'}
           value={orderTime}
           valueClass="font-mono text-xs text-gray-400"
         />

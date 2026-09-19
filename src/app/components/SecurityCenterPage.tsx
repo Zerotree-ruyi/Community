@@ -25,8 +25,8 @@ export function SecurityCenterPage() {
               <Lock className="w-6 h-6 text-[#c4f82a]" />
             </div>
             <div className="flex-1">
-              <div className="text-base mb-1">登录密码</div>
-              <div className="text-xs text-gray-500">用于登录账户</div>
+              <div className="text-base mb-1">Login Password</div>
+              <div className="text-xs text-gray-500">Used to log in to your account</div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-600" />
           </div>
@@ -39,8 +39,8 @@ export function SecurityCenterPage() {
               <Key className="w-6 h-6 text-[#c4f82a]" />
             </div>
             <div className="flex-1">
-              <div className="text-base mb-1">资金密码</div>
-              <div className="text-xs text-gray-500">用于提现、重要操作验证</div>
+              <div className="text-base mb-1">Fund Password</div>
+              <div className="text-xs text-gray-500">Used for withdrawals and important operation verification</div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-600" />
           </div>

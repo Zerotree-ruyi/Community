@@ -54,8 +54,12 @@ interface AuthContextValue {
 const STORAGE_KEY = 'exchange_user';
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+// 走 A 台 nginx 反代(/api → B 台 :3001),HTTPS 友好,无 mixed content
+//   - login / register / 任何 postJSON 调用都走这里
+const DIRECT_API = "/api";
+
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${DIRECT_API}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

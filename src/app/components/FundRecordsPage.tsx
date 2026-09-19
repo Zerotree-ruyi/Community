@@ -173,7 +173,7 @@ export function FundRecordsPage() {
             className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
               tab === 'order' ? 'bg-[#c4f82a] text-black font-semibold' : 'bg-gray-800 text-white'
             }`}
-          >{t('fundRecords.orderTab') || '下单记录'}</button>
+          >{t('fundRecords.orderTab') || 'Order Records'}</button>
         </div>
       </div>
 
@@ -265,8 +265,8 @@ export function FundRecordsPage() {
                 <CreditCard className="w-5 h-5 text-amber-400" />
               </div>
               <div>
-                <div className="text-sm font-medium">我的钱包</div>
-                <div className="text-xs text-gray-500 mt-0.5">管理银行卡和数字币钱包</div>
+                <div className="text-sm font-medium">My Wallets</div>
+                <div className="text-xs text-gray-500 mt-0.5">Manage bank cards and crypto wallets</div>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-amber-400" />

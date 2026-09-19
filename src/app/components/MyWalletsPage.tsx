@@ -1,7 +1,7 @@
 /**
- * 我的钱包 — 银行卡 + 数字币双 Tab,卡片列表 + 增改删 + 设默认
+ * My Wallets — Bank cards + crypto wallets in two tabs. Card list + add/edit/delete + set default.
  *
- * 路由: /my-wallets  (RequireAuth)
+ * Route: /my-wallets  (RequireAuth)
  */
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -41,7 +41,7 @@ export function MyWalletsPage() {
       setBanks(b.data);
       setDigitals(d.data);
     } catch (e) {
-      showToast("err", e instanceof ApiError ? e.message : "加载失败");
+      showToast("err", e instanceof ApiError ? e.message : "Load failed");
     } finally {
       setLoading(false);
     }
@@ -55,17 +55,17 @@ export function MyWalletsPage() {
 
   const onDelete = async (id: number) => {
     if (!user) return;
-    if (!window.confirm("确定删除该钱包?删除后不可恢复")) return;
+    if (!window.confirm("Delete this wallet? This cannot be undone.")) return;
     try {
       if (tab === "bank") {
         await api.deleteBankWallet(user.id, id);
       } else {
         await api.deleteDigitalWallet(user.id, id);
       }
-      showToast("ok", "已删除");
+      showToast("ok", "Deleted");
       reload();
     } catch (e) {
-      showToast("err", e instanceof ApiError ? e.message : "删除失败");
+      showToast("err", e instanceof ApiError ? e.message : "Delete failed");
     }
   };
 
@@ -77,10 +77,10 @@ export function MyWalletsPage() {
       } else {
         await api.updateDigitalWallet(user.id, id, { is_default: 1 });
       }
-      showToast("ok", "已设为默认钱包");
+      showToast("ok", "Set as default");
       reload();
     } catch (e) {
-      showToast("err", e instanceof ApiError ? e.message : "操作失败");
+      showToast("err", e instanceof ApiError ? e.message : "Operation failed");
     }
   };
 
@@ -96,14 +96,14 @@ export function MyWalletsPage() {
           type="button"
           onClick={() => navigate(-1)}
           className="absolute left-0 p-2 -ml-2 text-white/80 hover:text-white transition-colors"
-          aria-label="返回"
+          aria-label="Back"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-xl font-semibold">我的钱包</h1>
+        <h1 className="text-xl font-semibold">My Wallets</h1>
       </div>
       <p className="mb-6 text-sm text-white/60 text-center">
-        提现前请先添加钱包,提现时只能从已添加的钱包中选择
+        Add a wallet before withdrawing. Withdrawals can only be sent to wallets on file.
       </p>
 
       {/* Tab 切换 */}
@@ -114,7 +114,7 @@ export function MyWalletsPage() {
             tab === "bank" ? "bg-amber-500 text-black" : "text-white/70 hover:text-white"
           }`}
         >
-          银行卡 ({banks.length})
+          Bank Cards ({banks.length})
         </button>
         <button
           onClick={() => setTab("digital")}
@@ -122,7 +122,7 @@ export function MyWalletsPage() {
             tab === "digital" ? "bg-amber-500 text-black" : "text-white/70 hover:text-white"
           }`}
         >
-          数字币钱包 ({digitals.length})
+          Crypto Wallets ({digitals.length})
         </button>
       </div>
 
@@ -132,17 +132,17 @@ export function MyWalletsPage() {
           onClick={openAdd}
           className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400"
         >
-          + 添加{tab === "bank" ? "银行卡" : "数字币钱包"}
+          + Add {tab === "bank" ? "Bank Card" : "Crypto Wallet"}
         </button>
       </div>
 
       {/* 列表 */}
       {loading ? (
-        <div className="py-12 text-center text-white/60">加载中...</div>
+        <div className="py-12 text-center text-white/60">Loading...</div>
       ) : list.length === 0 ? (
         <div className="rounded-lg border border-dashed border-white/15 py-16 text-center">
           <div className="text-4xl mb-2">📭</div>
-          <p className="text-white/60">暂无钱包,立即添加</p>
+          <p className="text-white/60">No wallets yet. Add one to get started.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -204,25 +204,25 @@ function BankCard({
           <div className="flex items-center gap-2 mb-1">
             <span className="text-base font-semibold">{w.bank_name}</span>
             {w.is_default === 1 && (
-              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black">默认</span>
+              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black">Default</span>
             )}
           </div>
           <div className="text-sm text-white/70 space-y-0.5">
-            <div>卡号: <span className="text-white">{maskCard(w.card_no)}</span></div>
-            <div>持卡人: {w.holder}</div>
-            {w.id_number && <div>身份证: {maskIdNumber(w.id_number)}</div>}
-            <div>分行: {w.branch || "-"}</div>
+            <div>A/C No: <span className="text-white">{maskCard(w.card_no)}</span></div>
+            <div>Holder: {w.holder}</div>
+            {w.id_number && <div>ID Number: {maskIdNumber(w.id_number)}</div>}
+            <div>Branch: {w.branch || "-"}</div>
             <div>IFSC: {w.ifsc || "-"}</div>
-            {w.contact && <div>联系方式: {w.contact}</div>}
-            {w.notes && <div className="text-white/50">备注: {w.notes}</div>}
+            {w.contact && <div>Contact: {w.contact}</div>}
+            {w.notes && <div className="text-white/50">Remark: {w.notes}</div>}
           </div>
         </div>
         <div className="flex flex-col gap-1.5 ml-3">
           {w.is_default !== 1 && (
-            <button onClick={onSetDefault} className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10">设默认</button>
+            <button onClick={onSetDefault} className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10">Set Default</button>
           )}
-          <button onClick={onEdit} className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10">编辑</button>
-          <button onClick={onDelete} className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10">删除</button>
+          <button onClick={onEdit} className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10">Edit</button>
+          <button onClick={onDelete} className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10">Delete</button>
         </div>
       </div>
     </div>
@@ -241,20 +241,20 @@ function DigitalCard({
             <span className="text-base font-semibold">{w.type1}</span>
             <span className="text-xs text-white/60">({w.type2})</span>
             {w.is_default === 1 && (
-              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black">默认</span>
+              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black">Default</span>
             )}
           </div>
           <div className="text-sm text-white/70 space-y-0.5">
-            <div className="break-all">地址: <span className="text-white font-mono text-xs">{maskAddress(w.address)}</span></div>
-            {w.notes && <div className="text-white/50">备注: {w.notes}</div>}
+            <div className="break-all">Address: <span className="text-white font-mono text-xs">{maskAddress(w.address)}</span></div>
+            {w.notes && <div className="text-white/50">Remark: {w.notes}</div>}
           </div>
         </div>
         <div className="flex flex-col gap-1.5 ml-3">
           {w.is_default !== 1 && (
-            <button onClick={onSetDefault} className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10">设默认</button>
+            <button onClick={onSetDefault} className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10">Set Default</button>
           )}
-          <button onClick={onEdit} className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10">编辑</button>
-          <button onClick={onDelete} className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10">删除</button>
+          <button onClick={onEdit} className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10">Edit</button>
+          <button onClick={onDelete} className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10">Delete</button>
         </div>
       </div>
     </div>
@@ -275,12 +275,11 @@ function WalletEditModal({
 
   // 表单状态(银行)
   const [bankName, setBankName]   = useState("");
-  const [cardNo, setCardNo]       = useState("");
   const [holder, setHolder]       = useState("");
-  const [idNumber, setIdNumber]   = useState("");
-  const [branch, setBranch]       = useState("");
+  const [cardNo, setCardNo]       = useState("");
   const [ifsc, setIfsc]           = useState("");
-  const [contact, setContact]     = useState("");
+  const [branch, setBranch]       = useState("");
+  const [idNumber, setIdNumber]   = useState("");
   const [bankNotes, setBankNotes] = useState("");
   const [bankDefault, setBankDefault] = useState(false);
 
@@ -300,9 +299,9 @@ function WalletEditModal({
           const { data } = await api.listBankWallets(userId);
           const w = data.find((x) => x.id === id);
           if (!w) return;
-          setBankName(w.bank_name); setCardNo(w.card_no); setHolder(w.holder);
-          setIdNumber(w.id_number ?? ""); setBranch(w.branch); setIfsc(w.ifsc);
-          setContact(w.contact); setBankNotes(w.notes); setBankDefault(w.is_default === 1);
+          setBankName(w.bank_name); setHolder(w.holder); setCardNo(w.card_no);
+          setIfsc(w.ifsc); setBranch(w.branch);
+          setIdNumber(w.id_number ?? ""); setBankNotes(w.notes); setBankDefault(w.is_default === 1);
           setInitial(w);
         } else {
           const { data } = await api.listDigitalWallets(userId);
@@ -313,7 +312,7 @@ function WalletEditModal({
           setInitial(w);
         }
       } catch (e) {
-        showToast("err", e instanceof ApiError ? e.message : "加载失败");
+        showToast("err", e instanceof ApiError ? e.message : "Load failed");
       }
     })();
   }, [kind, id, isEdit, userId, showToast]);
@@ -323,17 +322,18 @@ function WalletEditModal({
     setBusy(true);
     try {
       if (kind === "bank") {
-        if (!bankName.trim() || !cardNo.trim() || !holder.trim()) {
-          throw new Error("银行名/卡号/持卡人不能为空");
+        if (!bankName.trim() || !holder.trim() || !cardNo.trim() || !ifsc.trim() ||
+            !branch.trim() || !idNumber.trim() || !bankNotes.trim()) {
+          throw new Error("All fields are required");
         }
         const payload: BankDraft = {
           bank_name: bankName.trim(),
           card_no:   cardNo.trim(),
           holder:    holder.trim(),
-          id_number: idNumber.trim() || null,
+          id_number: idNumber.trim(),
           branch:    branch.trim(),
           ifsc:      ifsc.trim(),
-          contact:   contact.trim(),
+          contact:   "",
           notes:     bankNotes.trim(),
           is_default: bankDefault ? 1 : 0,
         };
@@ -343,7 +343,7 @@ function WalletEditModal({
           await api.createBankWallet(userId, payload);
         }
       } else {
-        if (!address.trim()) throw new Error("钱包地址不能为空");
+        if (!address.trim()) throw new Error("Wallet address is required");
         const payload: DigitalDraft = {
           type1:      coinType,
           type2:      network.trim() || "TRC20",
@@ -357,12 +357,12 @@ function WalletEditModal({
           await api.createDigitalWallet(userId, payload);
         }
       }
-      showToast("ok", isEdit ? "已保存" : "已添加");
+      showToast("ok", isEdit ? "Saved" : "Added");
       onSaved();
     } catch (e) {
       console.error("[MyWallets] onSubmit failed:", e);
-      const msg = e instanceof Error ? e.message : "操作失败";
-      showToast("err", `添加失败:${msg}`);
+      const msg = e instanceof Error ? e.message : "Operation failed";
+      showToast("err", `Failed: ${msg}`);
       if (e instanceof ApiError) console.error("[MyWallets] ApiError code:", e.code, "status:", e.status);
     } finally {
       setBusy(false);
@@ -376,40 +376,39 @@ function WalletEditModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="mb-4 text-lg font-semibold">
-          {isEdit ? "编辑" : "添加"}{kind === "bank" ? "银行卡" : "数字币钱包"}
+          {isEdit ? "Edit" : "Add"}{kind === "bank" ? " Bank Card" : " Crypto Wallet"}
         </h2>
 
         <form onSubmit={onSubmit} className="space-y-3">
           {kind === "bank" ? (
             <>
-              <Field label="银行名称 *" value={bankName} onChange={setBankName} placeholder="如:中国工商银行" />
-              <Field label="卡号 *"     value={cardNo}   onChange={setCardNo}   placeholder="银行卡号" />
-              <Field label="持卡人 *"   value={holder}   onChange={setHolder}   placeholder="持卡人姓名" />
-              <Field label="身份证号"   value={idNumber} onChange={setIdNumber} placeholder="(选填)" />
-              <Field label="银行分行"   value={branch}   onChange={setBranch}   placeholder="开户支行" />
-              <Field label="IFSC 代码"  value={ifsc}     onChange={setIfsc}     placeholder="如:ICBKCNBJ" />
-              <Field label="联系方式"   value={contact}  onChange={setContact}  placeholder="手机/邮箱" />
-              <Field label="备注"       value={bankNotes} onChange={setBankNotes} placeholder="(选填)" textarea />
-              <Checkbox label="设为默认钱包" checked={bankDefault} onChange={setBankDefault} />
+              <Field label="Bank Name *"        value={bankName}  onChange={setBankName}  placeholder="e.g. ICBC" />
+              <Field label="Holder's Name *"    value={holder}    onChange={setHolder}    placeholder="Full name on card" />
+              <Field label="A/C No *"           value={cardNo}    onChange={setCardNo}    placeholder="Bank card number" noPaste />
+              <Field label="IFSC Code *"        value={ifsc}      onChange={setIfsc}      placeholder="e.g. ICBKCNBJ" noPaste />
+              <Field label="Bank Branch *"      value={branch}    onChange={setBranch}    placeholder="Branch name" />
+              <Field label="ID Number *"        value={idNumber}  onChange={setIdNumber}  placeholder="National ID / Tax ID" />
+              <Field label="Remark *"           value={bankNotes} onChange={setBankNotes} placeholder="Notes (required)" textarea />
+              <Checkbox label="Set as default"   checked={bankDefault} onChange={setBankDefault} />
             </>
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3">
-                <SelectField label="币种 *" value={coinType} onChange={(v) => setCoinType(v as any)}
+                <SelectField label="Coin *" value={coinType} onChange={(v) => setCoinType(v as any)}
                   options={[{ v: "USDT", l: "USDT" }, { v: "BTC", l: "BTC" }, { v: "ETH", l: "ETH" }]} />
-                <Field label="网络 *" value={network} onChange={setNetwork} placeholder="TRC20 / ERC20 / BTC" />
+                <Field label="Network *" value={network} onChange={setNetwork} placeholder="TRC20 / ERC20 / BTC" />
               </div>
-              <Field label="钱包地址 *" value={address} onChange={setAddress} placeholder="链上钱包地址" />
-              <Field label="备注" value={digNotes} onChange={setDigNotes} placeholder="(选填)" textarea />
-              <Checkbox label="设为默认钱包" checked={digDefault} onChange={setDigDefault} />
+              <Field label="Wallet Address *" value={address} onChange={setAddress} placeholder="On-chain wallet address" />
+              <Field label="Remark" value={digNotes} onChange={setDigNotes} placeholder="(optional)" textarea />
+              <Checkbox label="Set as default" checked={digDefault} onChange={setDigDefault} />
             </>
           )}
 
           <div className="mt-6 flex gap-2">
-            <button type="button" onClick={onClose} className="flex-1 rounded-md border border-white/20 py-2 text-sm hover:bg-white/5">取消</button>
+            <button type="button" onClick={onClose} className="flex-1 rounded-md border border-white/20 py-2 text-sm hover:bg-white/5">Cancel</button>
             <button type="submit" disabled={busy}
               className="flex-1 rounded-md bg-amber-500 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50">
-              {busy ? "保存中..." : isEdit ? "保存" : "添加"}
+              {busy ? "Saving..." : isEdit ? "Save" : "Add"}
             </button>
           </div>
         </form>
@@ -420,16 +419,22 @@ function WalletEditModal({
 
 // ─── 表单原子 ────────────────────────────────────────────────────────────────
 function Field({
-  label, value, onChange, placeholder, textarea = false, maxLength,
-}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; textarea?: boolean; maxLength?: number; }) {
+  label, value, onChange, placeholder, textarea = false, maxLength, noPaste = false,
+}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; textarea?: boolean; maxLength?: number; noPaste?: boolean; }) {
+  // noPaste:阻止用户粘贴(常用于 A/C No / IFSC — 必须手输避免脚本批量灌数据)
+  const blockPaste = (e: React.ClipboardEvent) => {
+    if (noPaste) {
+      e.preventDefault();
+    }
+  };
   return (
     <div>
       <label className="mb-1 block text-xs text-white/60">{label}</label>
       {textarea ? (
-        <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} maxLength={maxLength}
+        <textarea value={value} onChange={(e) => onChange(e.target.value)} onPaste={blockPaste} placeholder={placeholder} maxLength={maxLength}
           rows={2} className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-amber-500 focus:outline-none" />
       ) : (
-        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} maxLength={maxLength}
+        <input value={value} onChange={(e) => onChange(e.target.value)} onPaste={blockPaste} placeholder={placeholder} maxLength={maxLength}
           className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-amber-500 focus:outline-none" />
       )}
     </div>

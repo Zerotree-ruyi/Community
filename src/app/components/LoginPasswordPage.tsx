@@ -43,11 +43,11 @@ export function LoginPasswordPage() {
   const validation = useMemo(() => {
     if (!oldPwd) return { ok: false, msg: '' };
     if (newPwd && (newPwd.length < 6 || newPwd.length > 32))
-      return { ok: false, msg: '密码长度需 6-32 位' };
+      return { ok: false, msg: 'Password must be 6–32 characters' };
     if (newPwd && oldPwd === newPwd)
-      return { ok: false, msg: '新密码不能与旧密码相同' };
+      return { ok: false, msg: 'New password cannot be the same as the old one' };
     if (confirmPwd && newPwd !== confirmPwd)
-      return { ok: false, msg: '两次输入的新密码不一致' };
+      return { ok: false, msg: 'The two new passwords do not match' };
     return { ok: true, msg: '' };
   }, [oldPwd, newPwd, confirmPwd]);
 
@@ -64,7 +64,7 @@ export function LoginPasswordPage() {
     e.preventDefault();
     if (!canSubmit) return;
     if (!user?.id) {
-      setStatus({ kind: 'error', message: '请先登录' });
+      setStatus({ kind: 'error', message: 'Please log in first' });
       return;
     }
 
@@ -81,25 +81,25 @@ export function LoginPasswordPage() {
       });
       const data = await r.json().catch(() => ({} as any));
       if (!r.ok) {
-        // 后端返回的 error code → 中文
+        // Map backend error codes to user-facing messages
         const msg =
-          data?.error === 'wrong_old_password' ? '旧密码错误' :
-          data?.error === 'invalid_password'    ? '新密码长度需 6-32 位' :
-          data?.error === 'same_password'       ? '新密码不能与旧密码相同' :
-          data?.error === 'account_disabled'    ? '账号已被禁用' :
-          data?.error === 'not_found'           ? '会员不存在' :
-          data?.message || `修改失败 (${r.status})`;
+          data?.error === 'wrong_old_password' ? 'Old password is incorrect' :
+          data?.error === 'invalid_password'    ? 'New password must be 6–32 characters' :
+          data?.error === 'same_password'       ? 'New password cannot be the same as the old one' :
+          data?.error === 'account_disabled'    ? 'This account has been disabled' :
+          data?.error === 'not_found'           ? 'Member does not exist' :
+          data?.message || `Update failed (${r.status})`;
         setStatus({ kind: 'error', message: msg });
         return;
       }
-      setStatus({ kind: 'success', message: '登录密码修改成功,请下次登录使用新密码' });
+      setStatus({ kind: 'success', message: 'Login password updated. Please use the new password next time.' });
       setOldPwd('');
       setNewPwd('');
       setConfirmPwd('');
       // 2 秒后自动返回安全中心
       setTimeout(() => navigate('/security'), 1800);
     } catch (err: any) {
-      setStatus({ kind: 'error', message: err?.message || '网络错误,请稍后再试' });
+      setStatus({ kind: 'error', message: err?.message || 'Network error. Please try again.' });
     }
   };
 
@@ -204,7 +204,7 @@ export function LoginPasswordPage() {
               : 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed'
           }`}
         >
-          {status.kind === 'submitting' ? '提交中…' : t('loginPassword.confirmChange')}
+          {status.kind === 'submitting' ? 'Submitting…' : t('loginPassword.confirmChange')}
         </button>
 
         {/* 状态提示 */}

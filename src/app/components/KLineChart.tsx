@@ -12,15 +12,22 @@ import { useEffect, useRef, useState } from 'react';
 
 // 从本地 public/ 加载,不走外网 CDN(国内网络 unpkg 经常被卡,导致图表空白)
 const SCRIPT_SRC = '/lightweight-charts.standalone.production.js';
-// 多个端点回退 — 国内网络环境 api.binance.com 经常超时
+// 多个端点回退 — 优先走本后端代理(同源,无 CORS),失败再试公网镜像
 const REST_HOSTS = [
-  'https://data-api.binance.vision', // 官方数据镜像,通常可达
-  'https://api.binance.com',         // 主站,部分地区被墙
+  '/api/binance',  // 本后端代理 — 首选
+  'https://data-api.binance.vision',
+  'https://api.binance.com',
   'https://api1.binance.com',
   'https://api.binance.us',
 ];
-const buildKlinesUrl = (host: string, symbol: string, interval: string, limit = 200) =>
-  `${host}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+const buildKlinesUrl = (host: string, symbol: string, interval: string, limit = 200) => {
+  // 本后端代理(走 A 台反代) — 相对路径,加 /klines 子路径
+  if (host.startsWith('/')) {
+    return `${host}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  }
+  // 公网 Binance 镜像 — 绝对 URL,走 /api/v3/klines
+  return `${host}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+};
 const INTERVAL_DEFAULT = '15m';
 
 interface Props { symbol: string; /* 例如 BTCUSDT */ }
@@ -136,12 +143,12 @@ export function KLineChart({ symbol }: Props) {
           lastErr = e;
         }
       }
-      setErrMsg(`K线加载失败: ${lastErr?.message || '所有镜像都连不上'}`);
+      setErrMsg(`Failed to load K-line: ${lastErr?.message || 'All mirrors unreachable'}`);
     })();
 
     // WebSocket 实时推送
     try {
-      const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`);
+      const ws = new WebSocket(`wss://data-stream.binance.vision/ws/${symbol.toLowerCase()}@kline_${interval}`);
       wsRef.current = ws;
       ws.onmessage = (ev) => {
         try {
@@ -216,7 +223,7 @@ export function KLineChart({ symbol }: Props) {
       {errMsg && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 text-sm bg-black/70 gap-2 z-20">
           <div className="text-base">⚠ {errMsg}</div>
-          <div className="text-xs text-gray-500">尝试刷新页面或切换交易对</div>
+          <div className="text-xs text-gray-500">Try refreshing the page or switching the trading pair</div>
         </div>
       )}
       {!ready && (

@@ -453,11 +453,9 @@ npx tsx server.ts
 
 点 **提交**。
 
-### 3.9 配置反向代理(/api/* → PM2 跑的 3001)
+### 3.9 配置反向代理(`/api/*` → PM2 跑的 3001)
 
-接着上一步,刚加完站点会自动跳到站点列表,找到 `exchange-admin.b.local` 这一行,**点它**(不是点右边「设置」按钮,而是点站点名),进入站点详情。
-
-或者:左侧 **网站** → 找到 `exchange-admin.b.local` → 右侧 **设置** 按钮。
+宝塔左侧菜单 → **网站** → 找到 `exchange-admin.b.local` 这一行 → 右侧 **设置** 按钮。
 
 弹出站点设置面板,左侧子菜单选 **反向代理** → 顶部 **添加反向代理** 按钮:
 
@@ -469,27 +467,7 @@ npx tsx server.ts
 
 点 **提交**。
 
-### 3.10 在 Nginx 配置里加 `/api/` 转发规则
-
-上一步的反向代理会自动生成一段 `proxy_pass`,但只覆盖根路径;我们要的是 `/api/*` 这一段。
-
-宝塔左侧菜单 → **网站** → 找到 `exchange-admin.b.local` → 右侧 **设置** → 左侧子菜单 **配置文件**。
-
-在打开的 Nginx 配置里,找到 `location / { ... }` 这一段,**把它替换**(或者在它之前**插入**)下面这段:
-
-```nginx
-location /api/ {
-    proxy_pass http://127.0.0.1:3001/api/;
-    proxy_set_header Host              $host;
-    proxy_set_header X-Real-IP         $remote_addr;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_http_version 1.1;
-    proxy_read_timeout 60s;
-}
-```
-
-点页面右上 **保存** 按钮。宝塔会自动 `nginx -t` 检查配置,无误后 reload。
+提交后宝塔会自动生成 `proxy_pass` 配置,**不需要再手编 Nginx**。宝塔自动 `nginx -t` 检查配置,无误后 reload。
 
 > 🎯 这一步的效果:**外部访问 `http://47.236.95.137/api/health` 会被 Nginx 转到 `http://127.0.0.1:3001/api/health`** — 也就是 PM2 跑的那个后端。
 
@@ -501,7 +479,7 @@ location /api/ {
 |---|---|---|
 | `80` | Nginx (A 台反代用) | 公网 |
 | `443` | Nginx HTTPS(可选) | 公网 |
-| `3001` | 备用直连(可不开放) | 视情况 |
+| `3001` | 备用直连(可不开放) | **❌ 建议不开** — A 台反代走 B 台 80,直连 3001 绕开 Nginx,没必要暴露 |
 | `3306` | MySQL | **❌ 不要开公网** |
 
 ### 3.12 B 台部署完成 — 自检
@@ -623,55 +601,25 @@ Compress-Archive -Path * -DestinationPath "..\trade-frontend.zip" -Force
 
 点 **提交**。
 
-### 4.5 配置 Nginx 反代 `/api/`(让前端能调后端)
+### 4.5 配置反向代理(让前端能调后端)
 
-宝塔左侧菜单 → **网站** → 找到 `47.236.172.111` 这一行 → 右侧 **设置** → 左侧子菜单 **配置文件**。
+宝塔左侧菜单 → **网站** → 找到 `47.236.172.111` 这一行 → 右侧 **设置** → 左侧子菜单 **反向代理** → 顶部 **添加反向代理** 按钮:
 
-在打开的 Nginx 配置里,**用下面这段整体替换** `server { ... }` 整段:
+| 表单项 | 你要填的值 |
+|---|---|
+| **代理名称** | `api` |
+| **目标 URL** | `http://47.236.95.137:80` |
+| **发送域名** | `$host` |
 
-```nginx
-server {
-    listen 80;
-    server_name 47.236.172.111;     # 或你的域名,如 trade.example.com
+> 💡 **目标 URL 用 B 台的 80 端口(走 B 台 Nginx 反代),不是直连 B 台 3001**。这样:
+> - 浏览器 / 前端只看到 A 台(同源 → 无 CORS)
+> - A 台 Nginx 把 `/api/*` 转到 B 台 80
+> - B 台 Nginx 再把 `/api/*` 转到 3001(PM2 后端)
+> - **A 台不需要开 3001 端口**(也强烈建议不开 — A 台不该跑后端)
 
-    root /www/wwwroot/trade;
-    index index.html;
+点 **提交**。
 
-    # SPA 路由 fallback — 所有前端路由都交回 index.html
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # 静态资源缓存
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
-        expires 30d;
-        add_header Cache-Control "public, max-age=2592000";
-        try_files $uri =404;
-    }
-
-    # ⭐ 反向代理后端到 B 台 (47.236.95.137)
-    location /api/ {
-        proxy_pass http://47.236.95.137/api/;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_http_version 1.1;
-        proxy_read_timeout 60s;
-        proxy_connect_timeout 10s;
-    }
-
-    # 前端日志
-    access_log /www/wwwlogs/trade.access.log;
-    error_log  /www/wwwlogs/trade.error.log;
-}
-```
-
-> 💡 如果你不想在 B 台 Nginx 配置,直接让 A 台穿透到 3001:
-> ```nginx
-> proxy_pass http://47.236.95.137:3001/api/;
-> ```
-> 此时 B 台需开放 3001 端口。
+> 🎯 这一步的效果:浏览器访问 `http://47.236.172.111/api/health` → A 台 Nginx 转到 `http://47.236.95.137/api/health` → B 台 Nginx 转到 `http://127.0.0.1:3001/api/health`(PM2)。
 
 ### 4.6 A 台防火墙
 

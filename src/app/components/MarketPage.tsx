@@ -113,7 +113,7 @@ function PriceWithChart({ symbol }: { symbol: string }) {
       const fetchKlines = async () => {
         try {
           const response = await fetch(
-            `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol.toUpperCase()}&interval=1h&limit=20`
+            `/api/binance/klines?symbol=${binanceSymbol.toUpperCase()}&interval=1h&limit=20`
           );
           const data = await response.json();
           // 提取收盘价
@@ -121,7 +121,7 @@ function PriceWithChart({ symbol }: { symbol: string }) {
           setCandleData(closePrices);
         } catch (e) {
           // 如果失败，使用WebSocket获取方向
-          const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${binanceSymbol.toLowerCase()}@ticker`);
+          const ws = new WebSocket(`wss://data-stream.binance.vision/ws/${binanceSymbol.toLowerCase()}@ticker`);
           ws.onmessage = (event) => {
             const tick = JSON.parse(event.data);
             setCandleData([parseFloat(tick.c)]);
@@ -340,7 +340,7 @@ export function MarketPage() {
 
     if (!streams) return;
 
-    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    const ws = new WebSocket(`wss://data-stream.binance.vision/stream?streams=${streams}`);
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
@@ -475,8 +475,9 @@ export function MarketPage() {
                 <div className="flex items-center gap-3">
                   {/* 加密货币显示官方Logo */}
                   <CryptoLogo
-                    src={(item as any).logo}
+                    symbol={(item as any).glyph}
                     name={item.name}
+                    color={item.color}
                   />
                   <div>
                     <div className="flex items-center gap-2 mb-1">

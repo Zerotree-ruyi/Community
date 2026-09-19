@@ -129,7 +129,7 @@ export function WithdrawPage() {
 
         {/* Wallet Type Toggle */}
         <div className="mb-5">
-          <h3 className="text-sm text-gray-400 mb-3">提现方式</h3>
+          <h3 className="text-sm text-gray-400 mb-3">Withdrawal Method</h3>
           <div className="flex gap-3">
             <button
               onClick={() => setWalletType('digital')}
@@ -139,7 +139,7 @@ export function WithdrawPage() {
                   : 'bg-[#1a1a1a] text-gray-400'
               }`}
             >
-              数字币钱包
+              Crypto Wallet
             </button>
             <button
               onClick={() => setWalletType('bank')}
@@ -149,7 +149,7 @@ export function WithdrawPage() {
                   : 'bg-[#1a1a1a] text-gray-400'
               }`}
             >
-              银行卡
+              Bank Card
             </button>
           </div>
         </div>
@@ -157,20 +157,20 @@ export function WithdrawPage() {
         {/* Wallet Selection */}
         <div className="mb-5">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm text-gray-400">选择钱包</h3>
+            <h3 className="text-sm text-gray-400">Select Wallet</h3>
             <Link to="/my-wallets" className="text-xs text-[#c4f82a]">
-              + 管理钱包
+              + Manage Wallets
             </Link>
           </div>
 
           {loading ? (
-            <div className="bg-[#1a1a1a] rounded-xl p-4 text-center text-gray-500 text-sm">加载中...</div>
+            <div className="bg-[#1a1a1a] rounded-xl p-4 text-center text-gray-500 text-sm">Loading...</div>
           ) : list.length === 0 ? (
             <div className="bg-[#1a1a1a] rounded-xl p-6 text-center">
               <div className="text-3xl mb-2">📭</div>
-              <p className="text-gray-500 text-sm mb-3">还没有{walletType === 'bank' ? '银行卡' : '数字币钱包'}</p>
+              <p className="text-gray-500 text-sm mb-3">No {walletType === 'bank' ? 'bank cards' : 'crypto wallets'} yet</p>
               <Link to="/my-wallets" className="inline-block rounded-md bg-[#c4f82a] px-4 py-1.5 text-xs font-semibold text-black">
-                立即添加
+                Add Now
               </Link>
             </div>
           ) : (
@@ -198,7 +198,7 @@ export function WithdrawPage() {
                           <div className="flex items-center gap-2">
                             <span className="font-semibold">{(w as BankWallet).bank_name}</span>
                             {(w as BankWallet).is_default === 1 && (
-                              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black">默认</span>
+                              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black">DEFAULT</span>
                             )}
                           </div>
                           <div className="text-xs text-gray-400 mt-0.5 truncate">
@@ -211,7 +211,7 @@ export function WithdrawPage() {
                             <span className="font-semibold">{(w as DigitalWallet).type1}</span>
                             <span className="text-xs text-gray-400">({(w as DigitalWallet).type2})</span>
                             {(w as DigitalWallet).is_default === 1 && (
-                              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black">默认</span>
+                              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black">DEFAULT</span>
                             )}
                           </div>
                           <div className="text-xs text-gray-400 mt-0.5 truncate font-mono">
@@ -259,14 +259,14 @@ export function WithdrawPage() {
 
         {/* Fund Password */}
         <div className="mb-5">
-          <h3 className="text-sm text-gray-400 mb-3">资金密码</h3>
+          <h3 className="text-sm text-gray-400 mb-3">Fund Password</h3>
           <input
             type="password"
             inputMode="numeric"
             maxLength={6}
             value={fundPwd}
             onChange={(e) => setFundPwd(e.target.value.replace(/\D/g, ''))}
-            placeholder="6 位数字资金密码"
+            placeholder="6-digit fund password"
             className="w-full bg-[#1a1a1a] rounded-xl p-4 outline-none focus:ring-2 focus:ring-[#c4f82a] transition-all placeholder-gray-600 text-white tracking-widest"
           />
         </div>
@@ -294,7 +294,7 @@ export function WithdrawPage() {
           disabled={submitting || !selectedWallet || !amount}
           className="w-full bg-[#c4f82a] text-black py-4 rounded-xl mb-4 hover:opacity-90 transition-opacity font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {submitting ? '提交中...' : t('withdraw.submit')}
+          {submitting ? 'Submitting...' : t('withdraw.submit')}
         </button>
 
         {/* Notice */}
@@ -302,15 +302,15 @@ export function WithdrawPage() {
           <div className="text-xs text-gray-500 space-y-2">
             <div className="flex items-start gap-2">
               <span>•</span>
-              <span>提现申请提交后将冻结相应余额,审核通过后到账</span>
+              <span>After a withdrawal request is submitted, the corresponding balance will be frozen and credited once approved.</span>
             </div>
             <div className="flex items-start gap-2">
               <span>•</span>
-              <span>如审核被拒绝,冻结金额将原路退回可用余额</span>
+              <span>If the review is rejected, the frozen amount will be returned to your available balance.</span>
             </div>
             <div className="flex items-start gap-2">
               <span>•</span>
-              <span>提现前请确认钱包信息准确,提交后不可修改</span>
+              <span>Please verify your wallet details before submitting. Withdrawals cannot be modified after submission.</span>
             </div>
           </div>
         </div>

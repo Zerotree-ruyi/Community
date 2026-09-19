@@ -84,14 +84,14 @@ export function WithdrawHistoryPage() {
       {/* List */}
       <div className="px-4 space-y-3">
         {loading ? (
-          <div className="text-center py-20 text-gray-500">加载中...</div>
+          <div className="text-center py-20 text-gray-500">Loading...</div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-20">
             <div className="text-5xl mb-3">📭</div>
-            <div className="text-gray-400 mb-1">暂无记录</div>
-            <div className="text-xs text-gray-500">还没有{activeTab === 'all' ? '任何' : activeTab}的提现记录</div>
+            <div className="text-gray-400 mb-1">No records</div>
+            <div className="text-xs text-gray-500">No withdrawal records{activeTab === 'all' ? '' : ` for ${activeTab}`} yet</div>
             <Link to="/withdraw" className="inline-block mt-4 rounded-md bg-[#c4f82a] px-4 py-1.5 text-xs font-semibold text-black">
-              前往提现
+              Go to Withdraw
             </Link>
           </div>
         ) : (
@@ -103,18 +103,18 @@ export function WithdrawHistoryPage() {
       {!loading && list.length > 0 && (
         <div className="px-4 mt-6">
           <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 rounded-xl p-4 border border-gray-700/50">
-            <div className="text-sm text-gray-400 mb-3">统计</div>
+            <div className="text-sm text-gray-400 mb-3">Statistics</div>
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <div className="text-xs text-gray-500 mb-1">总记录</div>
+                <div className="text-xs text-gray-500 mb-1">Total Records</div>
                 <div className="text-lg">{stats.total}</div>
               </div>
               <div>
-                <div className="text-xs text-gray-500 mb-1">成功笔数</div>
+                <div className="text-xs text-gray-500 mb-1">Successful</div>
                 <div className="text-lg">{stats.success}</div>
               </div>
               <div>
-                <div className="text-xs text-gray-500 mb-1">提现总额</div>
+                <div className="text-xs text-gray-500 mb-1">Total Withdrawn</div>
                 <div className="text-lg text-emerald-400">{stats.successAmount.toFixed(2)}</div>
               </div>
             </div>
@@ -157,46 +157,46 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
       <div className="bg-black/30 rounded-lg p-3 mb-3 text-xs space-y-1.5">
         {w.wallet_type === 'bank' ? (
           <>
-            <Row label="银行" value={w.snap_bank_name || '-'} />
-            <Row label="卡号" value={w.snap_card_no ? maskCard(w.snap_card_no) : '-'} mono />
-            <Row label="持卡人" value={w.snap_holder || '-'} />
-            {w.snap_branch && <Row label="分行" value={w.snap_branch} />}
+            <Row label="Bank" value={w.snap_bank_name || '-'} />
+            <Row label="A/C No" value={w.snap_card_no ? maskCard(w.snap_card_no) : '-'} mono />
+            <Row label="Holder" value={w.snap_holder || '-'} />
+            {w.snap_branch && <Row label="Branch" value={w.snap_branch} />}
             {w.snap_ifsc && <Row label="IFSC" value={w.snap_ifsc} mono />}
-            {w.snap_id_number && <Row label="身份证" value={maskIdNumber(w.snap_id_number)} />}
+            {w.snap_id_number && <Row label="ID Number" value={maskIdNumber(w.snap_id_number)} />}
           </>
         ) : (
           <>
-            <Row label="币种" value={`${w.snap_coin_type || '-'} (${w.snap_network || '-'})`} />
-            <Row label="地址" value={w.snap_address ? maskAddress(w.snap_address) : '-'} mono />
+            <Row label="Currency" value={`${w.snap_coin_type || '-'} (${w.snap_network || '-'})`} />
+            <Row label="Address" value={w.snap_address ? maskAddress(w.snap_address) : '-'} mono />
           </>
         )}
       </div>
 
       {/* 金额明细 */}
       <div className="text-xs space-y-1.5">
-        <Row label="手续费" value={`${fee.toFixed(2)} USDT`} />
-        <Row label="实际到账" value={`${actual.toFixed(2)} USDT`} valueClass="text-emerald-400" />
+        <Row label="Fee" value={`${fee.toFixed(2)} USDT`} />
+        <Row label="Actual Received" value={`${actual.toFixed(2)} USDT`} valueClass="text-emerald-400" />
       </div>
 
       {/* 审核信息 */}
       {w.status === '已同意' && (
         <div className="mt-3 pt-3 border-t border-gray-700/50 text-xs space-y-1">
-          {w.reviewer && <Row label="审核人" value={w.reviewer} />}
-          {w.approve_time && <Row label="审核时间" value={w.approve_time} />}
-          {w.admin_note && <Row label="备注" value={w.admin_note} />}
+          {w.reviewer && <Row label="Reviewer" value={w.reviewer} />}
+          {w.approve_time && <Row label="Review Time" value={w.approve_time} />}
+          {w.admin_note && <Row label="Note" value={w.admin_note} />}
         </div>
       )}
       {w.status === '已拒绝' && (
         <div className="mt-3 pt-3 border-t border-gray-700/50 text-xs space-y-1">
-          {w.reviewer && <Row label="审核人" value={w.reviewer} />}
-          {w.approve_time && <Row label="审核时间" value={w.approve_time} />}
+          {w.reviewer && <Row label="Reviewer" value={w.reviewer} />}
+          {w.approve_time && <Row label="Review Time" value={w.approve_time} />}
           {w.reject_reason && (
             <div>
-              <div className="text-gray-400 mb-0.5">拒绝原因</div>
+              <div className="text-gray-400 mb-0.5">Rejection Reason</div>
               <div className="text-red-400 bg-red-500/10 rounded px-2 py-1.5">{w.reject_reason}</div>
             </div>
           )}
-          {w.admin_note && <Row label="管理员备注" value={w.admin_note} />}
+          {w.admin_note && <Row label="Admin Note" value={w.admin_note} />}
         </div>
       )}
     </div>

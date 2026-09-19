@@ -12,7 +12,7 @@ export function DepositPage() {
       <button
         onClick={() => navigate(-1)}
         className="absolute top-4 left-4 w-10 h-10 rounded-full bg-[#1a1a1a] flex items-center justify-center hover:bg-[#262626] transition-colors"
-        aria-label="返回"
+        aria-label="Back"
       >
         <ArrowLeft className="w-5 h-5 text-gray-300" />
       </button>
@@ -29,7 +29,7 @@ export function DepositPage() {
             <MessageCircle className="w-8 h-8 text-[#c4f82a]" />
           </div>
           <h2 className="text-lg font-semibold text-white mb-1">
-            {t('deposit.noticeTitle') || '充值提示'}
+            {t('deposit.noticeTitle') || 'Deposit Notice'}
           </h2>
           <div className="w-12 h-0.5 bg-[#c4f82a] rounded-full" />
         </div>
@@ -48,7 +48,7 @@ Please return to the previous page.`}
           className="w-full bg-[#c4f82a] text-black py-3.5 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>{t('deposit.backToPrev') || '返回上一页'}</span>
+          <span>{t('deposit.backToPrev') || 'Back to Previous Page'}</span>
         </button>
       </div>
     </div>

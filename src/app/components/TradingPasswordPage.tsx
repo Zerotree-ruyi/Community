@@ -57,7 +57,7 @@ export function TradingPasswordPage() {
         const data = await r.json().catch(() => ({} as any));
         if (cancelled) return;
         if (!r.ok) {
-          setStatus({ kind: 'error', message: '获取账户信息失败' });
+          setStatus({ kind: 'error', message: 'Failed to load account info' });
           return;
         }
         // 后端 SELECT SAFE_USER_COLS 不包含 fund_password 字段,
@@ -69,7 +69,7 @@ export function TradingPasswordPage() {
         setHasFundPassword(set);
         setStatus({ kind: 'idle' });
       } catch (e: any) {
-        if (!cancelled) setStatus({ kind: 'error', message: e?.message || '网络错误' });
+        if (!cancelled) setStatus({ kind: 'error', message: e?.message || 'Network error' });
       }
     })();
     return () => { cancelled = true; };
@@ -77,13 +77,13 @@ export function TradingPasswordPage() {
 
   // 实时校验
   const validation = useMemo(() => {
-    if (hasFundPassword && !oldPwd) return { ok: false, msg: '请输入当前资金密码' };
+    if (hasFundPassword && !oldPwd) return { ok: false, msg: 'Please enter your current fund password' };
     if (newPwd && !/^\d{6}$/.test(newPwd))
-      return { ok: false, msg: '资金密码必须为 6 位数字' };
+      return { ok: false, msg: 'Fund password must be exactly 6 digits' };
     if (hasFundPassword && oldPwd && newPwd && oldPwd === newPwd)
-      return { ok: false, msg: '新资金密码不能与旧密码相同' };
+      return { ok: false, msg: 'New fund password cannot be the same as the old one' };
     if (confirmPwd && newPwd !== confirmPwd)
-      return { ok: false, msg: '两次输入的资金密码不一致' };
+      return { ok: false, msg: 'The two fund passwords do not match' };
     return { ok: true, msg: '' };
   }, [hasFundPassword, oldPwd, newPwd, confirmPwd]);
 
@@ -113,24 +113,24 @@ export function TradingPasswordPage() {
       const data = await r.json().catch(() => ({} as any));
       if (!r.ok) {
         const msg =
-          data?.error === 'wrong_old_password'    ? '当前资金密码错误' :
-          data?.error === 'invalid_fund_password' ? '资金密码必须是 6 位数字' :
-          data?.error === 'same_password'         ? '新资金密码不能与旧密码相同' :
-          data?.error === 'account_disabled'      ? '账号已被禁用' :
-          data?.error === 'not_found'             ? '会员不存在' :
-          data?.message || `修改失败 (${r.status})`;
+          data?.error === 'wrong_old_password'    ? 'Current fund password is incorrect' :
+          data?.error === 'invalid_fund_password' ? 'Fund password must be 6 digits' :
+          data?.error === 'same_password'         ? 'New fund password cannot be the same as the old one' :
+          data?.error === 'account_disabled'      ? 'This account has been disabled' :
+          data?.error === 'not_found'             ? 'Member does not exist' :
+          data?.message || `Update failed (${r.status})`;
         setStatus({ kind: 'error', message: msg });
         return;
       }
       setStatus({
         kind: 'success',
-        message: data.wasSet ? '资金密码修改成功' : '资金密码设置成功',
+        message: data.wasSet ? 'Fund password updated successfully' : 'Fund password set successfully',
       });
       setOldPwd(''); setNewPwd(''); setConfirmPwd('');
       setHasFundPassword(true);
       setTimeout(() => navigate('/security'), 1800);
     } catch (err: any) {
-      setStatus({ kind: 'error', message: err?.message || '网络错误,请稍后再试' });
+      setStatus({ kind: 'error', message: err?.message || 'Network error. Please try again.' });
     }
   };
 
@@ -142,7 +142,7 @@ export function TradingPasswordPage() {
   if (status.kind === 'loading') {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-gray-500">加载中…</div>
+        <div className="text-gray-500">Loading…</div>
       </div>
     );
   }
@@ -162,10 +162,10 @@ export function TradingPasswordPage() {
         <div className="bg-gradient-to-r from-[#3a4a2a] to-[#2a3a2a] rounded-xl p-4 border border-[#c4f82a]/30 mb-6">
           <div className="flex items-center gap-3 mb-2">
             <Lock className="w-5 h-5 text-[#c4f82a]" />
-            <span className="text-sm">关于资金密码</span>
+            <span className="text-sm">About Fund Password</span>
           </div>
           <div className="text-xs text-gray-400">
-            资金密码(原"交易密码")用于提现和重要操作验证,请妥善保管。
+            The fund password (formerly "trading password") is used for withdrawals and important operation verification. Please keep it safe.
           </div>
         </div>
 
@@ -173,13 +173,13 @@ export function TradingPasswordPage() {
           {/* Current Password (only if has fund password) */}
           {hasFundPassword && (
             <div>
-              <label className="text-sm text-gray-400 mb-2 block">当前资金密码</label>
+              <label className="text-sm text-gray-400 mb-2 block">Current Fund Password</label>
               <div className="relative">
                 <input
                   type={showOld ? 'text' : 'password'}
                   value={oldPwd}
                   onChange={(e) => { setOldPwd(e.target.value); setStatus({ kind: 'idle' }); }}
-                  placeholder="请输入当前 6 位数字资金密码"
+                  placeholder="Enter your current 6-digit fund password"
                   inputMode="numeric"
                   maxLength={6}
                   autoComplete="current-password"
@@ -200,14 +200,14 @@ export function TradingPasswordPage() {
           {/* New Password */}
           <div>
             <label className="text-sm text-gray-400 mb-2 block">
-              {hasFundPassword ? '新资金密码' : '设置资金密码'}
+              {hasFundPassword ? 'New Fund Password' : 'Set Fund Password'}
             </label>
             <div className="relative">
               <input
                 type={showNew ? 'text' : 'password'}
                 value={newPwd}
                 onChange={(e) => { setNewPwd(e.target.value.replace(/\D/g, '').slice(0, 6)); setStatus({ kind: 'idle' }); }}
-                placeholder="请输入 6 位数字资金密码"
+                placeholder="Enter a 6-digit fund password"
                 inputMode="numeric"
                 maxLength={6}
                 autoComplete="new-password"
@@ -222,18 +222,18 @@ export function TradingPasswordPage() {
                 {showNew ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
-            <div className="text-xs text-gray-500 mt-2">资金密码必须为 6 位数字</div>
+            <div className="text-xs text-gray-500 mt-2">Fund password must be exactly 6 digits</div>
           </div>
 
           {/* Confirm Password */}
           <div>
-            <label className="text-sm text-gray-400 mb-2 block">确认资金密码</label>
+            <label className="text-sm text-gray-400 mb-2 block">Confirm Fund Password</label>
             <div className="relative">
               <input
                 type={showConfirm ? 'text' : 'password'}
                 value={confirmPwd}
                 onChange={(e) => { setConfirmPwd(e.target.value.replace(/\D/g, '').slice(0, 6)); setStatus({ kind: 'idle' }); }}
-                placeholder="请再次输入资金密码"
+                placeholder="Re-enter the fund password"
                 inputMode="numeric"
                 maxLength={6}
                 autoComplete="new-password"
@@ -269,7 +269,7 @@ export function TradingPasswordPage() {
               : 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed'
           }`}
         >
-          {status.kind === 'submitting' ? '提交中…' : submitLabel}
+          {status.kind === 'submitting' ? 'Submitting…' : submitLabel}
         </button>
 
         {/* 状态提示 */}
@@ -279,7 +279,7 @@ export function TradingPasswordPage() {
             {status.message}
           </div>
         )}
-        {status.kind === 'error' && status.message !== '请先登录' && (
+        {status.kind === 'error' && status.message !== 'Please log in first' && (
           <div className="mt-4 flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
             <AlertCircle className="w-5 h-5 shrink-0" />
             {status.message}
@@ -288,13 +288,13 @@ export function TradingPasswordPage() {
 
         {/* Tips */}
         <div className="mt-6 bg-[#1a1a1a] rounded-xl p-4 border border-gray-800">
-          <div className="text-sm text-gray-400 mb-2">安全提示:</div>
+          <div className="text-sm text-gray-400 mb-2">Security Tips:</div>
           <ul className="text-xs text-gray-500 space-y-1">
-            <li>• 资金密码必须为 6 位纯数字</li>
-            <li>• 请勿使用过于简单的密码(如 123456)</li>
-            <li>• 资金密码不能与登录密码相同</li>
-            <li>• 用于提现、转账等重要操作验证</li>
-            <li>• 如忘记密码,请联系客服重置</li>
+            <li>• The fund password must be exactly 6 digits.</li>
+            <li>• Avoid simple passwords such as 123456.</li>
+            <li>• The fund password cannot be the same as your login password.</li>
+            <li>• Used for withdrawals, transfers, and other important operations.</li>
+            <li>• If you forget it, please contact customer support to reset.</li>
           </ul>
         </div>
       </form>

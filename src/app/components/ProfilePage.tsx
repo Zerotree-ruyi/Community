@@ -1,4 +1,4 @@
-import { Headphones, Settings, RefreshCw, Wallet, CreditCard, TrendingUp, History, Shield, ChevronRight, Menu, LogOut, Bell, Info, MessageCircle } from 'lucide-react';
+import { Headphones, Settings, RefreshCw, Wallet, CreditCard, TrendingUp, History, Shield, ChevronRight, Menu, LogOut, Bell, Info } from 'lucide-react';
 import profileImage from 'figma:asset/24411b954e9a7d0808d3690d275bfb16d666f530.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -15,7 +15,6 @@ export function ProfilePage() {
   const navigate = useNavigate();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number>(0);
-  const [showContact, setShowContact] = useState(false);
 
   // 进入页面从服务器拉一次最新的余额/信用分
   // 1) 首次挂载 / user.id 变化
@@ -69,7 +68,7 @@ export function ProfilePage() {
   };
 
   const handleLogout = () => {
-    if (!window.confirm(t('profile.confirmLogout') || '确定要退出登录吗?')) return;
+    if (!window.confirm(t('profile.confirmLogout') || 'Are you sure you want to log out?')) return;
     logout();                                   // 清掉 AuthContext.user + localStorage
     navigate('/login', { replace: true });      // 跳到登录页
   };
@@ -219,8 +218,8 @@ export function ProfilePage() {
             <div className="flex items-center gap-3">
               <CreditCard className="w-5 h-5 text-amber-400" />
               <div className="text-left">
-                <div className="text-sm">我的钱包</div>
-                <div className="text-xs text-gray-500">银行卡 / 数字币钱包管理</div>
+                <div className="text-sm">My Wallets</div>
+                <div className="text-xs text-gray-500">Bank Cards / Crypto Wallets</div>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />
@@ -263,7 +262,7 @@ export function ProfilePage() {
           </button>
         </Link>
 
-        {/* 关于公司 + 在线客服 + 站内信 — 紧凑贴在一起(共享一个圆角卡片) */}
+        {/* About + Messages — compact, sharing one rounded card */}
         <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 divide-y divide-gray-700/50">
           <Link
             to="/about"
@@ -296,70 +295,7 @@ export function ProfilePage() {
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </div>
           </Link>
-          <a
-            href="https://t.me/your_support"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full p-4 flex items-center justify-between"
-          >
-            <div className="flex items-center gap-3">
-              <MessageCircle className="w-5 h-5 text-gray-400" />
-              <div className="text-left">
-                <div className="text-sm">{t('profile.contactSupport')}</div>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-gray-400" />
-          </a>
         </div>
-
-        {/* 在线客服弹窗 */}
-        {showContact && (
-          <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
-            onClick={() => setShowContact(false)}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="w-full sm:max-w-md bg-gradient-to-b from-[#1a1f2e] to-[#0f1419] rounded-t-2xl sm:rounded-2xl border border-gray-700/60 p-6"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base text-white">在线客服</h3>
-                <button
-                  onClick={() => setShowContact(false)}
-                  className="text-gray-400 hover:text-white text-xl leading-none"
-                  aria-label="关闭"
-                >×</button>
-              </div>
-              <div className="space-y-3 text-sm">
-                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/40">
-                  <div className="text-xs text-gray-400 mb-1">公司名称</div>
-                  <div>Crypto Investment Platform</div>
-                </div>
-                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/40">
-                  <div className="text-xs text-gray-400 mb-1">客服邮箱</div>
-                  <div className="text-[#c4f82a]">support@example.com</div>
-                </div>
-                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/40">
-                  <div className="text-xs text-gray-400 mb-1">Telegram / WhatsApp</div>
-                  <div>+86 138-0000-0000</div>
-                </div>
-                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/40">
-                  <div className="text-xs text-gray-400 mb-1">工作时间</div>
-                  <div>7 × 24 小时全天候服务</div>
-                </div>
-              </div>
-              <a
-                href="https://t.me/your_support"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-5 w-full bg-gradient-to-r from-[#c4f82a] to-green-500 text-black py-3 rounded-xl flex items-center justify-center gap-2 font-semibold"
-              >
-                <MessageCircle className="w-5 h-5" />
-                <span>立即开始在线聊天</span>
-              </a>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Logout Button */}

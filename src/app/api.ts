@@ -16,6 +16,7 @@ export class ApiError extends Error {
   }
 }
 
+// 走 A 台 nginx 反代(/api → B 台 :3001),HTTPS 友好,无 mixed content
 const API = "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

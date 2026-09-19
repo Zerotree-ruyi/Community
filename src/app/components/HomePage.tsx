@@ -45,7 +45,7 @@ function useRealtimePrice(symbol: string) {
 
   useEffect(() => {
     const wsSymbol = symbol.toLowerCase();
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${wsSymbol}@ticker`);
+    const ws = new WebSocket(`wss://data-stream.binance.vision/ws/${wsSymbol}@ticker`);
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -120,7 +120,7 @@ function MarketTableRow({ coin, price, change, positive }: {
     >
       {/* 币种 */}
       <div className="col-span-4 flex items-center gap-3 min-w-0">
-        <CryptoLogo src={coin.logo} name={coin.key} />
+        <CryptoLogo symbol={coin.glyph} name={coin.key} color={coin.color} />
         <div className="min-w-0">
           <div className="text-base text-white truncate">{coin.key}</div>
           <div className="text-xs text-gray-500 truncate">{coin.name}</div>
@@ -195,7 +195,7 @@ export function HomePage() {
 
     if (!streams) return;
 
-    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    const ws = new WebSocket(`wss://data-stream.binance.vision/stream?streams=${streams}`);
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
@@ -439,12 +439,12 @@ export function HomePage() {
         <div className="bg-gray-800/40 rounded-xl border border-gray-700/50 overflow-hidden">
           {/* 表头 — 价格 / 涨跌幅 可点击排序 */}
           <div className="grid grid-cols-12 py-3 px-3 bg-gray-800/60 border-b border-gray-700/50 text-xs text-gray-400 uppercase">
-            <div className="col-span-4">币种</div>
+            <div className="col-span-4">Pair</div>
             <button
               onClick={() => handleSort('price')}
               className="col-span-4 pl-[60px] text-left flex items-center gap-1 hover:text-white transition-colors"
             >
-              <span>最新价格</span>
+              <span>Latest Price</span>
               <SortArrows active={sortKey === 'price'} dir={sortDir} />
             </button>
             <button
@@ -452,7 +452,7 @@ export function HomePage() {
               className="col-span-4 text-right flex items-center justify-end gap-1 hover:text-white transition-colors"
             >
               <SortArrows active={sortKey === 'change'} dir={sortDir} />
-              <span>涨跌幅</span>
+              <span>24h Change</span>
             </button>
           </div>
           {sortedCoins.map(coin => {

@@ -107,7 +107,7 @@ export function OrderDetailPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0f1419] text-white flex items-center justify-center">
-        <div className="text-gray-400">加载中...</div>
+        <div className="text-gray-400">Loading...</div>
       </div>
     );
   }
@@ -122,7 +122,7 @@ export function OrderDetailPage() {
           <h1 className="text-lg ml-3">{t('orders.detail.title')}</h1>
         </div>
         <div className="px-6 py-20 text-center text-gray-500">
-          {error === 'not_found' ? '订单不存在' : (error || '加载失败')}
+          {error === 'not_found' ? 'Order not found' : (error || 'Failed to load')}
         </div>
       </div>
     );

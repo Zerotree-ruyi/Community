@@ -99,7 +99,7 @@ export function TradingPage() {
   // WebSocket for real-time price
   useEffect(() => {
     const wsSymbol = symbolParam.toLowerCase() + 'usdt';
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${wsSymbol}@ticker`);
+    const ws = new WebSocket(`wss://data-stream.binance.vision/ws/${wsSymbol}@ticker`);
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -153,11 +153,11 @@ export function TradingPage() {
     setSubmitError(null);
     // 校验金额必填
     if (!orderAmount || amountNum <= 0 || !Number.isFinite(amountNum)) {
-      setSubmitError(t('orders.invalidAmount') || '请填写订单金额');
+      setSubmitError(t('orders.invalidAmount') || 'Please enter the order amount');
       return;
     }
     if (!user) {
-      setSubmitError('请先登录');
+      setSubmitError('Please log in first');
       return;
     }
     setSubmitting(true);
@@ -168,7 +168,7 @@ export function TradingPage() {
         body: JSON.stringify({
           member_id: user.id,
           symbol: tradingSymbol,
-          direction: orderDirection === 'buy' ? '涨' : '跌',
+          direction: orderDirection === 'buy' ? 'up' : 'down',
           amount: amountNum,
           open_price: currentPriceRaw,
           period: selectedPeriod,
@@ -177,7 +177,7 @@ export function TradingPage() {
       });
       const data = await r.json();
       if (!r.ok || !data.ok) {
-        setSubmitError(data.message || '下单失败');
+        setSubmitError(data.message || 'Order failed');
         return;
       }
       // 成功 → 刷新当前用户余额(冻结金额变化)→ 关闭抽屉 → 跳到 /orders 持仓 tab
@@ -185,7 +185,7 @@ export function TradingPage() {
       setShowOrderSheet(false);
       navigate('/orders', { state: { tab: 'positions' } });
     } catch (err: any) {
-      setSubmitError(err?.message || '网络错误');
+      setSubmitError(err?.message || 'Network error');
     } finally {
       setSubmitting(false);
     }
@@ -354,7 +354,7 @@ export function TradingPage() {
               </span>
               {Number.isFinite(amountNum) && amountNum > 0 && (
                 <span className="text-[#c4f82a]">
-                  {t('orders.detail.settleAmount') || '结算金额'} ≈ {settlePreview}
+                  {t('orders.detail.settleAmount') || 'Settlement Amount'} ≈ {settlePreview}
                 </span>
               )}
             </div>
@@ -377,7 +377,7 @@ export function TradingPage() {
                   : 'bg-gradient-to-r from-[#dc2626] to-[#b91c1c]'
               } ${submitting ? 'opacity-60' : ''}`}
             >
-              {submitting ? '提交中...' : t('trading.submitOrder')}
+              {submitting ? 'Submitting...' : t('trading.submitOrder')}
             </button>
           </div>
         </>

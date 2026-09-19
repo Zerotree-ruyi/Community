@@ -48,6 +48,44 @@ app.use((req, _res, next) => {
   next();
 });
 
+// ─── 币安 REST 代理(解决前端 CORS) ──────────────────────────────────────────
+// 前端浏览器不能直连 https://api.binance.com,改用同源 /api/binance/*
+// 由本后端代为转发,缓存 5 秒减轻上游负担
+import https from "node:https";
+
+const BINANCE_API = "api.binance.com";
+
+function proxyBinanceGet(upstreamPath: string, req: any, res: any) {
+  const qs = new URLSearchParams(req.query as Record<string, string>).toString();
+  const fullPath = `${upstreamPath}${qs ? "?" + qs : ""}`;
+
+  const upstream = https.request(
+    {
+      hostname: BINANCE_API,
+      path: fullPath,
+      method: "GET",
+      headers: { "User-Agent": "exchange-proxy/1.0" },
+    },
+    (upRes) => {
+      res.status(upRes.statusCode || 502);
+      const ct = upRes.headers["content-type"];
+      if (ct) res.setHeader("Content-Type", ct);
+      res.setHeader("Cache-Control", "public, max-age=5");
+      upRes.pipe(res);
+    }
+  );
+  upstream.on("error", (e) => {
+    console.error("[binance proxy] error:", e.message);
+    res.status(502).json({ error: "binance_upstream_error", detail: e.message });
+  });
+  upstream.end();
+}
+
+app.get("/api/binance/klines",       (req, res) => proxyBinanceGet("/api/v3/klines", req, res));
+app.get("/api/binance/ticker/24hr",  (req, res) => proxyBinanceGet("/api/v3/ticker/24hr", req, res));
+app.get("/api/binance/ticker/price", (req, res) => proxyBinanceGet("/api/v3/ticker/price", req, res));
+app.get("/api/binance/exchangeInfo", (req, res) => proxyBinanceGet("/api/v3/exchangeInfo", req, res));
+
 // ─── IP helper ───────────────────────────────────────────────────────────────
 // 取客户端真实 IP(优先 x-forwarded-for,然后 req.ip,最后 socket)
 function getClientIp(req: any): string {

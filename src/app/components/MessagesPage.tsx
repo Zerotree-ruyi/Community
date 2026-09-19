@@ -46,7 +46,7 @@ export function MessagesPage() {
       if (!r.ok) throw new Error(d.error || d.message || `HTTP ${r.status}`);
       setItems(d.data || []);
     } catch (e: any) {
-      setErr(e.message || "加载失败");
+      setErr(e.message || "Failed to load");
     } finally {
       setLoading(false);
     }
@@ -73,7 +73,7 @@ export function MessagesPage() {
         <Link to="/profile" className="absolute left-4">
           <ArrowLeft className="w-6 h-6 text-white" />
         </Link>
-        <h1 className="text-lg">网站消息</h1>
+        <h1 className="text-lg">Site Messages</h1>
       </div>
 
       {/* 列表区 */}
@@ -81,14 +81,14 @@ export function MessagesPage() {
         {loading ? (
           <div className="flex items-center justify-center py-16 text-gray-500">
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
-            加载中…
+            Loading…
           </div>
         ) : err ? (
           <div className="text-center py-12 text-red-400">{err}</div>
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-500">
             <Mail className="w-12 h-12 mb-3 opacity-30" />
-            <div>暂无消息</div>
+            <div>No messages yet</div>
           </div>
         ) : (
           items.map(m => {
@@ -116,12 +116,12 @@ export function MessagesPage() {
                       {isUnread && (
                         <span
                           className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-[#0f1419]"
-                          aria-label="未读"
+                          aria-label="Unread"
                         />
                       )}
                     </div>
                     <div className={`truncate ${isUnread ? "text-white font-semibold" : "text-gray-300 font-normal"}`}>
-                      {m.title || "(无标题)"}
+                      {m.title || "(No title)"}
                     </div>
                   </div>
                   <div className={`shrink-0 ml-3 text-xs ${isUnread ? "text-[#c4f82a]" : "text-gray-500"}`}>
@@ -133,7 +133,7 @@ export function MessagesPage() {
                 {isOpen && (
                   <div className="border-t border-gray-700/50 px-5 py-5">
                     <div className="text-center text-base font-semibold text-white mb-3">
-                      {m.title || "(无标题)"}
+                      {m.title || "(No title)"}
                     </div>
                     <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">
                       {m.content}

@@ -42,7 +42,7 @@ export function LanguageSelector({ onClose }: LanguageSelectorProps) {
               <Globe className="w-5 h-5 text-[#c4f82a]" />
             </div>
             <div>
-              <h2 className="text-lg text-white">语言</h2>
+              <h2 className="text-lg text-white">Language</h2>
               <p className="text-xs text-gray-500">13 Languages Available</p>
             </div>
           </div>
@@ -83,7 +83,7 @@ export function LanguageSelector({ onClose }: LanguageSelectorProps) {
         {/* Footer */}
         <div className="p-4 border-t border-gray-800 text-center">
           <p className="text-xs text-gray-600">
-            更多语言即将到来中 · More languages coming soon
+            More languages coming soon
           </p>
         </div>
       </div>
