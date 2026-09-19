@@ -1,4 +1,4 @@
-import { Headphones, Settings, RefreshCw, Wallet, CreditCard, TrendingUp, History, Shield, ChevronRight, Menu, LogOut, Bell, Info } from 'lucide-react';
+import { Settings, RefreshCw, Wallet, CreditCard, TrendingUp, History, Shield, ChevronRight, LogOut, Bell, Info } from 'lucide-react';
 import profileImage from 'figma:asset/24411b954e9a7d0808d3690d275bfb16d666f530.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -109,24 +109,16 @@ export function ProfilePage() {
             </div>
           </div>
           <div className="flex items-center gap-3 relative z-10">
-            <a 
-              href="https://google.com" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors"
-            >
-              <Headphones className="w-5 h-5 text-gray-300" />
-            </a>
             <Link
               to="/messages"
               className="relative w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors"
-              title={unreadCount > 0 ? `站内信 · ${unreadCount} 条未读` : "站内信"}
+              title={unreadCount > 0 ? `Site Messages · ${unreadCount} unread` : "Site Messages"}
             >
               <Bell className="w-5 h-5 text-gray-300" />
               {unreadCount > 0 && (
                 <span
                   className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#0f1419]"
-                  aria-label={`未读 ${unreadCount}`}
+                  aria-label={`Unread ${unreadCount}`}
                 >
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
