@@ -21,8 +21,14 @@ export function CryptoLogo({ symbol, name, color = 'bg-gray-600', className = 'w
   // 用 symbol 直接渲染(unicode 字符)
   if (symbol) {
     return (
-      <div className={`${className} ${color} rounded-full flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-sm`}>
-        <span className="leading-none" style={{ fontSize: '60%' }}>{symbol}</span>
+      <div className={`${className} ${color} rounded-full flex items-center justify-center text-white font-bold shrink-0 shadow-sm`}>
+        <span
+          className="leading-none"
+          style={{
+            fontSize: '110%',
+            fontFamily: '"Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols2", "Noto Sans Symbols", "Symbola", sans-serif',
+          }}
+        >{symbol}</span>
       </div>
     );
   }
