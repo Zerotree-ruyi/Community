@@ -299,6 +299,16 @@ export function ProfilePage() {
           <LogOut className="w-6 h-6" />
           <span className="text-lg">{t('profile.logout')}</span>
         </button>
+
+        {/* Customer Service — bottom link */}
+        <a
+          href="https://google.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block w-full mt-4 text-center text-sm text-[#c4f82a] hover:underline"
+        >
+          Click Here Contact Our Online Service
+        </a>
       </div>
     </div>
   );
