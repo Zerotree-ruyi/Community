@@ -10,7 +10,6 @@ export function SettingsPage() {
     const names: Record<string, string> = {
       'en': 'English',
       'ja': '日本語',
-      'zh-CN': '简体中文',
       'th': 'ไทย',
       'vi': 'Tiếng Việt',
       'id': 'Bahasa Indonesia',
@@ -20,7 +19,6 @@ export function SettingsPage() {
       'ar': 'العربية',
       'fr': 'Français',
       'de': 'Deutsch',
-      'zh-TW': '繁體中文',
     };
     return names[language] || 'English';
   };

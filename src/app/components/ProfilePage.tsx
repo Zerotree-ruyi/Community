@@ -1,4 +1,4 @@
-import { Settings, RefreshCw, Wallet, CreditCard, TrendingUp, History, Shield, ChevronRight, LogOut, Bell, Info } from 'lucide-react';
+import { Settings, RefreshCw, Wallet, CreditCard, TrendingUp, History, Shield, ChevronRight, LogOut, Bell, Info, Headphones } from 'lucide-react';
 import profileImage from 'figma:asset/24411b954e9a7d0808d3690d275bfb16d666f530.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -287,6 +287,22 @@ export function ProfilePage() {
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </div>
           </Link>
+
+          {/* Customer Service — under Site Messages */}
+          <a
+            href="https://google.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full p-4 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <Headphones className="w-5 h-5 text-gray-400" />
+              <div className="text-left">
+                <div className="text-sm">Click Here Contact Our Online Service</div>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          </a>
         </div>
       </div>
 

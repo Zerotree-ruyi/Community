@@ -5,7 +5,6 @@ import { useLanguage, Language } from '../contexts/LanguageContext';
 const languages: { code: Language; name: string; nativeName: string }[] = [
   { code: 'en', name: 'English', nativeName: 'English' },
   { code: 'ja', name: 'Japanese', nativeName: '日本語' },
-  { code: 'zh-CN', name: 'Chinese Simplified', nativeName: '简体中文' },
   { code: 'th', name: 'Thai', nativeName: 'ไทย' },
   { code: 'vi', name: 'Vietnamese', nativeName: 'Tiếng Việt' },
   { code: 'id', name: 'Indonesian', nativeName: 'Bahasa Indonesia' },
@@ -15,7 +14,6 @@ const languages: { code: Language; name: string; nativeName: string }[] = [
   { code: 'ar', name: 'Arabic', nativeName: 'العربية' },
   { code: 'fr', name: 'French', nativeName: 'Français' },
   { code: 'de', name: 'German', nativeName: 'Deutsch' },
-  { code: 'zh-TW', name: 'Chinese Traditional', nativeName: '繁體中文' },
 ];
 
 export function LanguageSelectPage() {

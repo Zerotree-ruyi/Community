@@ -11,7 +11,6 @@ export function LanguageSelector({ onClose }: LanguageSelectorProps) {
   const languages: { code: Language; name: string; nativeName: string; flag: string }[] = [
     { code: 'en', name: 'English', nativeName: 'English', flag: '🇬🇧' },
     { code: 'ja', name: '日本語', nativeName: 'Japanese', flag: '🇯🇵' },
-    { code: 'zh-CN', name: '简体中文', nativeName: 'Chinese (Simplified)', flag: '🇨🇳' },
     { code: 'th', name: 'ไทย', nativeName: 'Thai', flag: '🇹🇭' },
     { code: 'vi', name: 'Tiếng Việt', nativeName: 'Vietnamese', flag: '🇻🇳' },
     { code: 'id', name: 'Bahasa Indonesia', nativeName: 'Indonesian', flag: '🇮🇩' },
@@ -21,7 +20,6 @@ export function LanguageSelector({ onClose }: LanguageSelectorProps) {
     { code: 'ar', name: 'العربية', nativeName: 'Arabic', flag: '🇸🇦' },
     { code: 'fr', name: 'Français', nativeName: 'French', flag: '🇫🇷' },
     { code: 'de', name: 'Deutsch', nativeName: 'German', flag: '🇩🇪' },
-    { code: 'zh-TW', name: '繁體中文', nativeName: 'Chinese (Traditional)', flag: '🇹🇼' },
   ];
 
   const handleLanguageSelect = (langCode: Language) => {
@@ -43,7 +41,7 @@ export function LanguageSelector({ onClose }: LanguageSelectorProps) {
             </div>
             <div>
               <h2 className="text-lg text-white">Language</h2>
-              <p className="text-xs text-gray-500">13 Languages Available</p>
+              <p className="text-xs text-gray-500">11 Languages Available</p>
             </div>
           </div>
           <button 

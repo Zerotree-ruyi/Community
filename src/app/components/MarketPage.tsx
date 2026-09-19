@@ -19,11 +19,6 @@ const marketHeaderFallback: Record<string, any> = {
     trend: 'トレンド',
     latestPrice: '最新価格',
   },
-  'zh-CN': {
-    nameVolume: '名称 / 24H量',
-    trend: '走势',
-    latestPrice: '最新价',
-  },
   th: {
     nameVolume: 'ชื่อ / ปริมาณ 24 ชม.',
     trend: 'แนวโน้ม',

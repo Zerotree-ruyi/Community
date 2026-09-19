@@ -27,17 +27,6 @@ const loanFallback: Record<string, any> = {
     loanNow: '今すぐローン', status: 'ステータス', active: '進行中', overdue: '延滞',
     settled: '返済済み', dueDate: '返済期日',
   },
-  'zh-CN': {
-    title: '借贷', hot: 'HOT', creditLimit: '信用额度', score: '评分',
-    totalLimit: '总额度', used: '已使用', available: '可用',
-    applyLoan: '申请借款', myLoans: '我的借款', loanAmount: '借款金额',
-    range: '范围', loanPeriod: '借款期限', days: '天', applyNow: '立即申请',
-    riskWarning: '风险提示',
-    riskText: '借贷功能请谨慎，逾期将产生费用，请按期还款，避免逾期影响信用评分',
-    overdueRate: '逾期日至', perDay: '/天', noRecords: '暂无借款记录',
-    loanNow: '立即借款', status: '状态', active: '进行中', overdue: '已逾期',
-    settled: '已还清', dueDate: '到期日',
-  },
   th: {
     title: 'เงินกู้', hot: 'HOT', creditLimit: 'วงเงินสินเชื่อ', score: 'คะแนน',
     totalLimit: 'วงเงินรวม', used: 'ใช้ไปแล้ว', available: 'ที่ใช้ได้',
