@@ -475,7 +475,7 @@ export function MarketPage() {
                 <div className="flex items-center gap-3">
                   {/* 加密货币显示官方Logo */}
                   <CryptoLogo
-                    symbol={(item as any).glyph}
+                    symbol={(item as any).key}
                     name={item.name}
                     color={item.color}
                   />

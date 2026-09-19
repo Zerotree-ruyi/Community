@@ -1,14 +1,14 @@
 /**
  * CryptoLogo — 加密货币 logo 组件(行情页 / 首页共享)
- *  - 优先显示 emoji 符号(零依赖,稳定可靠)
- *  - 没有 emoji 时 fallback 到首字母 + 品牌色
+ *  - 优先加载本地 PNG 图片(public/coins/{KEY}.png)
+ *  - 加载失败时 fallback 显示首字母 + 品牌色
  *
- *  不用外网图床(国内/服务器经常被墙),全部走 unicode 符号。
+ *  本地图,不依赖外网图床(国内/服务器经常被墙),加载快。
  */
 import { useState } from 'react';
 
 interface Props {
-  /** unicode 符号 / emoji(每个币种一个稳定符号) */
+  /** 币种 KEY(用于定位 /coins/{KEY}.png) — 必填 */
   symbol?: string;
   /** 首字母 fallback(图片加载失败时显示) */
   name: string;
@@ -18,17 +18,19 @@ interface Props {
 }
 
 export function CryptoLogo({ symbol, name, color = 'bg-gray-600', className = 'w-10 h-10' }: Props) {
-  // 用 symbol 直接渲染(unicode 字符)
-  if (symbol) {
+  const [errored, setErrored] = useState(false);
+  const showImg = symbol && !errored;
+
+  if (showImg) {
     return (
-      <div className={`${className} ${color} rounded-full flex items-center justify-center text-white font-bold shrink-0 shadow-sm`}>
-        <span
-          className="leading-none"
-          style={{
-            fontSize: '110%',
-            fontFamily: '"Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols2", "Noto Sans Symbols", "Symbola", sans-serif',
-          }}
-        >{symbol}</span>
+      <div className={`${className} ${color} rounded-full flex items-center justify-center shrink-0 shadow-sm overflow-hidden bg-white`}>
+        <img
+          src={`/coins/${symbol}.png`}
+          alt={name}
+          className="w-full h-full object-contain p-1"
+          loading="lazy"
+          onError={() => setErrored(true)}
+        />
       </div>
     );
   }
