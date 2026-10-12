@@ -7,25 +7,6 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { MARKET_COINS as CRYPTO_CONFIG } from '../data/marketConfig';
 
 
-// Fallback translations for market page headers
-const marketHeaderFallback: Record<string, any> = {
-  en: {
-    nameVolume: 'Name / 24H Vol',
-    trend: 'Trend',
-    latestPrice: 'Latest Price',
-  },
-  ja: {
-    nameVolume: '名称 / 24H量',
-    trend: 'トレンド',
-    latestPrice: '最新価格',
-  },
-  th: {
-    nameVolume: 'ชื่อ / ปริมาณ 24 ชม.',
-    trend: 'แนวโน้ม',
-    latestPrice: 'ราคาล่าสุด',
-  },
-};
-
 // 迷你走势图组件 - 更精美的曲线
 function MiniChart({ positive }: { positive: boolean }) {
   // 更复杂的曲线数据点
@@ -104,24 +85,29 @@ function PriceWithChart({ symbol }: { symbol: string }) {
     const binanceSymbol = symbol.startsWith('BINANCE:') ? wsSymbol : null;
 
     if (binanceSymbol) {
-      // 获取真实K线数据
+      // 获取真实K线数据 — 直接打公共 Binance(国内可能不通,但 klines API 优先级最高)
       const fetchKlines = async () => {
         try {
           const response = await fetch(
-            `/api/binance/klines?symbol=${binanceSymbol.toUpperCase()}&interval=1h&limit=20`
+            `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol.toUpperCase()}&interval=1h&limit=20`
           );
+          if (!response.ok) throw new Error('klines fetch failed');
           const data = await response.json();
           // 提取收盘价
-          const closePrices = data.map((k: any[]) => parseFloat(k[4]));
+          const closePrices = (data as any[]).map((k: any[]) => parseFloat(k[4]));
           setCandleData(closePrices);
         } catch (e) {
-          // 如果失败，使用WebSocket获取方向
-          const ws = new WebSocket(`wss://data-stream.binance.vision/ws/${binanceSymbol.toLowerCase()}@ticker`);
-          ws.onmessage = (event) => {
-            const tick = JSON.parse(event.data);
-            setCandleData([parseFloat(tick.c)]);
-          };
-          ws.onerror = () => setLoading(false);
+          // 如果失败，用 WebSocket ticker 取 1 个价格点(至少画个方向)
+          try {
+            const ws = new WebSocket(`wss://data-stream.binance.vision/ws/${binanceSymbol.toLowerCase()}@ticker`);
+            ws.onmessage = (event) => {
+              const tick = JSON.parse(event.data);
+              setCandleData([parseFloat(tick.c), parseFloat(tick.c) * 1.001]);
+            };
+            ws.onerror = () => setLoading(false);
+          } catch {
+            setLoading(false);
+          }
         }
         setLoading(false);
       };
@@ -264,7 +250,7 @@ function SortArrows({ active, dir, muted }: { active: boolean; dir: 'asc' | 'des
 export function MarketPage() {
   const [activeTab, setActiveTab] = useState('crypto');
   const [showLanguageSelector, setShowLanguageSelector] = useState(false);
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
 
   // 收藏功能 - 读取 localStorage
   const [favorites, setFavorites] = useState<string[]>(() => {
@@ -280,11 +266,7 @@ export function MarketPage() {
   };
 
   const getMarketHeaderText = (key: string) => {
-    const translation = t(`market.${key}`);
-    if (translation.startsWith('market.')) {
-      return (marketHeaderFallback[language] || marketHeaderFallback.en)[key] || key;
-    }
-    return translation;
+    return t(`market.${key}`);
   };
 
   const getCurrentConfig = () => {
@@ -476,7 +458,7 @@ export function MarketPage() {
                   />
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-base">{item.key}</span>
+                      <span className="text-base">{item.key === 'APT' ? item.name : item.key}</span>
                       <span className="bg-gray-700 text-[#c4f82a] text-[10px] px-1.5 py-0.5 rounded">
                         100x
                       </span>

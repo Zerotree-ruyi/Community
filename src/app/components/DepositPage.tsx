@@ -1,10 +1,14 @@
 import { ArrowLeft, MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { getSupportLink } from '../config';
 
 export function DepositPage() {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const [supportUrl, setSupportUrl] = useState("https://t.me/your_support");
+  useEffect(() => { getSupportLink().then(l => setSupportUrl(l.url)); }, []);
 
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center px-6">
@@ -44,13 +48,13 @@ Please return to the previous page.`}
 
         {/* 联系客服 */}
         <a
-          href="https://google.com"
+          href={supportUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="w-full bg-[#1a1a1a] border border-[#c4f82a] text-[#c4f82a] py-3.5 rounded-xl font-semibold hover:bg-[#c4f82a]/10 transition-colors flex items-center justify-center gap-2 mb-3"
         >
           <MessageCircle className="w-4 h-4" />
-          <span>Click Here Contact Our Online Service</span>
+          <span>{t('profile.contactSupport') || 'Click Here Contact Our Online Service'}</span>
         </a>
 
         {/* 返回按钮 */}

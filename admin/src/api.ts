@@ -130,19 +130,19 @@ export const api = {
     }),
 
   updateMember: (id: number, payload: {
-    nickname:    string;
-    phone:       string;
-    email:       string;
-    gender:      "男" | "女" | "";
-    remark:      string;
-    credit:      string;
-    win_mode?:   number;  // 1=要赢 0=要输 2=随机
-    tag:         string;
-    status:      "启用" | "禁用";
-    direction:   "up" | "down";
-    ban_order:   "allow" | "ban";
-    ban_withdraw: "allow" | "ban";
-    reviewer?:   string;
+    nickname?:    string;
+    phone?:       string;
+    email?:       string;
+    gender?:      "男" | "女" | "";
+    remark?:      string;
+    credit?:      string;
+    win_mode?:    number;  // 1=要赢 0=要输 2=随机
+    tag?:         string;
+    status?:      "启用" | "禁用";
+    direction?:   "up" | "down";
+    ban_order?:   "allow" | "ban";
+    ban_withdraw?: "allow" | "ban";
+    reviewer?:    string;
   }) =>
     request<{ ok: boolean; member: Member }>(`/members/${id}`, {
       method: "PUT",
@@ -391,6 +391,21 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ ips }),
     }),
+
+  // 客服链接 CRUD (super 专属)
+  listSupportLinks: () =>
+    request<{ data: SupportLinkRow[] }>(`/admin/support-links`),
+
+  upsertSupportLink: (agentId: number, payload: { url: string; label?: string; note?: string }) =>
+    request<{ ok: boolean }>(`/admin/support-links/${agentId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteSupportLink: (agentId: number) =>
+    request<{ ok: boolean }>(`/admin/support-links/${agentId}`, {
+      method: "DELETE",
+    }),
 };
 
 // 员工 IP 白名单单条规则
@@ -400,4 +415,22 @@ export interface IpRule {
   note: string;
   created_by: number;
   created_at: string;
+}
+
+export interface SupportLinkRow {
+  agent_id: number;
+  username: string;
+  display_name: string;
+  role: string;
+  invite_code: string;
+  status: number;
+  link: {
+    id: number;
+    agent_id: number;
+    label: string;
+    url: string;
+    note: string;
+    updated_by: string;
+    updated_at: string;
+  } | null;
 }

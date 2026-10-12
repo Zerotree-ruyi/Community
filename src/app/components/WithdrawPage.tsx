@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ShieldOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -24,6 +24,7 @@ export function WithdrawPage() {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [bannedDialog, setBannedDialog] = useState(false);
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
   // 拉余额
@@ -99,7 +100,13 @@ export function WithdrawPage() {
       showToast('ok', '提现申请已提交,等待审核');
       setTimeout(() => navigate('/withdraw/history'), 800);
     } catch (e) {
-      setErrMsg(e instanceof ApiError ? e.message : '提交失败');
+      // 账号被禁提 — 弹独立对话框(更醒目,提示这是管理员操作)
+      if (e instanceof ApiError && e.code === 'ban_withdraw') {
+        setBannedDialog(true);
+        setErrMsg(null);
+      } else {
+        setErrMsg(e instanceof ApiError ? e.message : '提交失败');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -324,6 +331,41 @@ export function WithdrawPage() {
         >
           {toast.msg}
         </div>
+      )}
+
+      {/* 禁提对话框 — 后端 ban_withdraw 拦截时弹出 */}
+      {bannedDialog && (
+        <>
+          {/* 遮罩 */}
+          <div
+            className="fixed inset-0 bg-black/70 z-40"
+            onClick={() => setBannedDialog(false)}
+          />
+          {/* 弹窗 */}
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 mx-auto max-w-sm bg-[#1a1a1a] border border-red-500/40 rounded-2xl p-6 shadow-2xl shadow-black/60"
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-full bg-red-500/15 border border-red-500/40 flex items-center justify-center mb-4">
+                <ShieldOff className="w-7 h-7 text-red-400" />
+              </div>
+              <h3 className="text-base font-semibold text-white mb-2">
+                Withdrawal Banned
+              </h3>
+              <p className="text-sm text-gray-300 leading-relaxed mb-5">
+                You have been banned from withdrawing funds.
+              </p>
+              <button
+                onClick={() => setBannedDialog(false)}
+                className="w-full bg-[#c4f82a] text-black py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

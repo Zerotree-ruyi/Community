@@ -33,7 +33,7 @@ export const MARKET_COINS: MarketCoin[] = [
   { symbol: 'BINANCE:ATOMUSDT',  name: 'Cosmos',           pair: 'USDT', glyph: 'C', color: 'bg-blue-800',   key: 'ATOM' },
   { symbol: 'BINANCE:ETCUSDT',   name: 'Ethereum Classic', pair: 'USDT', glyph: 'E', color: 'bg-green-600',  key: 'ETC'  },
   { symbol: 'BINANCE:NEARUSDT',  name: 'NEAR Protocol',    pair: 'USDT', glyph: 'N', color: 'bg-black',      key: 'NEAR' },
-  { symbol: 'BINANCE:APTUSDT',   name: 'Aptos',            pair: 'USDT', glyph: 'A', color: 'bg-zinc-700',   key: 'APT'  },
+  { symbol: 'BINANCE:APTUSDT',   name: 'BTG',              pair: 'USDT', glyph: 'A', color: 'bg-zinc-700',   key: 'APT'  },
   { symbol: 'BINANCE:ARBUSDT',   name: 'Arbitrum',         pair: 'USDT', glyph: 'A', color: 'bg-sky-600',    key: 'ARB'  },
   { symbol: 'BINANCE:OPUSDT',    name: 'Optimism',         pair: 'USDT', glyph: 'O', color: 'bg-red-500',    key: 'OP'   },
   { symbol: 'BINANCE:FILUSDT',   name: 'Filecoin',         pair: 'USDT', glyph: 'F', color: 'bg-blue-500',   key: 'FIL'  },

@@ -135,6 +135,40 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
+// ============================================
+// 客服链接 — 前台任何前端都能读,无需登录
+//   1) 查指定 agent_id
+//   2) 找不到 → 查 agent_id=0 全局默认
+//   3) 还找不到 → 返回占位 url
+// ============================================
+app.get("/api/support-link", async (req, res) => {
+  try {
+    const agentId = Number(req.query.agent_id ?? 0);
+    let [rows] = await db.query(
+      `SELECT agent_id, label, url FROM support_links WHERE agent_id = ? LIMIT 1`,
+      [Number.isFinite(agentId) ? agentId : 0]
+    );
+    if (!(rows as any[]).length) {
+      // 没配 → 用全局默认
+      [rows] = await db.query(
+        `SELECT agent_id, label, url FROM support_links WHERE agent_id = 0 LIMIT 1`
+      );
+    }
+    const r = (rows as any[])[0];
+    if (!r) {
+      // 表里一条都没有(刚部署/未跑 init-data)→ 兜底占位
+      return res.json({
+        agent_id: 0,
+        label: "Default Support",
+        url: "https://t.me/your_support",
+      });
+    }
+    res.json(r);
+  } catch (err: any) {
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
 // ─── Auth (注册 / 登录) ──────────────────────────────────────────────────────
 const SAFE_USER_COLS = `id, account, status, balance, frozen, credit, win_mode, tag,
   ban_order, ban_withdraw, agent_id, invite_code, type, kyc_status, register_time, session_token`;
@@ -1179,6 +1213,113 @@ app.put("/api/admin/employees/:id/ip-rules", async (req, res) => {
   }
 });
 
+// ============================================
+// 客服链接管理 (super only) — 给每个 agent 配客服链接
+//   GET    /api/admin/support-links            列表(含每个 admin 的当前链接)
+//   PUT    /api/admin/support-links/:agentId   新增/更新一条(upsert)
+//   DELETE /api/admin/support-links/:agentId   删除一条(agent_id=0 不能删)
+// ============================================
+
+// 列出所有支持链接 + 联合 admin_users 显示员工账号
+app.get("/api/admin/support-links", async (req, res) => {
+  try {
+    const guard = await requireRole(req, res, ["super"]);
+    if (!guard) return;
+
+    // 先列所有 admin (role=admin/operator) + 默认(0)
+    const [admins] = await db.query(
+      `SELECT id, username, display_name, role, invite_code, status
+         FROM admin_users
+        WHERE role IN ('super','admin','operator')
+        ORDER BY (role='super') DESC, id ASC`
+    );
+    const [links] = await db.query(
+      `SELECT id, agent_id, label, url, note, updated_by, updated_at
+         FROM support_links`
+    );
+    const map = new Map<number, any>((links as any[]).map(l => [Number(l.agent_id), l]));
+    // 默认行(0)补一条,即便 DB 里没建
+    const result = (admins as any[]).map(a => ({
+      agent_id: Number(a.id),
+      username: a.username,
+      display_name: a.display_name,
+      role: a.role,
+      invite_code: a.invite_code,
+      status: a.status,
+      link: map.get(Number(a.id)) ?? null,
+    }));
+    // 追加全局默认(agent_id=0)放最前
+    result.unshift({
+      agent_id: 0,
+      username: "(global)",
+      display_name: "全局默认",
+      role: "default",
+      invite_code: "",
+      status: 1,
+      link: map.get(0) ?? null,
+    });
+    res.json({ data: result });
+  } catch (err: any) {
+    console.error("[support-links GET]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// upsert — 新增或更新一个 agent 的客服链接
+app.put("/api/admin/support-links/:agentId", async (req, res) => {
+  try {
+    const guard = await requireRole(req, res, ["super"]);
+    if (!guard) return;
+
+    const agentId = Number(req.params.agentId);
+    if (!Number.isFinite(agentId) || agentId < 0)
+      return res.status(400).json({ error: "invalid_agent_id" });
+
+    const url = String(req.body?.url ?? "").trim().slice(0, 512);
+    if (!url) return res.status(400).json({ error: "missing_url", message: "请填写客服链接" });
+
+    // agent_id > 0 必须存在
+    if (agentId > 0) {
+      const [rows] = await db.query(`SELECT id FROM admin_users WHERE id = ? LIMIT 1`, [agentId]);
+      if (!(rows as any[]).length)
+        return res.status(404).json({ error: "agent_not_found", message: "员工不存在" });
+    }
+
+    const label = String(req.body?.label ?? "").slice(0, 64);
+    const note  = String(req.body?.note  ?? "").slice(0, 255);
+
+    await db.query(
+      `INSERT INTO support_links (agent_id, label, url, note, updated_by)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         label = VALUES(label),
+         url = VALUES(url),
+         note = VALUES(note),
+         updated_by = VALUES(updated_by)`,
+      [agentId, label, url, note, guard.username || `super#${guard.id}`]
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[support-links PUT]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// 删除一条(agent_id=0 不能删,兜底用)
+app.delete("/api/admin/support-links/:agentId", async (req, res) => {
+  try {
+    const guard = await requireRole(req, res, ["super"]);
+    if (!guard) return;
+    const agentId = Number(req.params.agentId);
+    if (agentId === 0)
+      return res.status(400).json({ error: "cannot_delete_default", message: "全局默认链接不能删除" });
+    await db.query(`DELETE FROM support_links WHERE agent_id = ?`, [agentId]);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
 app.post("/api/admin/regenerate-invite", async (req, res) => {
   try {
     // super 才能给员工重置邀请码(员工自己也可改自己的 — 简化起见只允许 super 调)
@@ -1286,20 +1427,49 @@ app.put("/api/members/:id", async (req, res) => {
   const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
 
   // 白名单字段 — 不允许改 account / password / balance
-  const fields: Record<string, any> = {
-    nickname:    String(req.body?.nickname ?? "").slice(0, 64).trim(),
-    phone:       String(req.body?.phone ?? "").slice(0, 32).trim(),
-    email:       String(req.body?.email ?? "").slice(0, 128).trim(),
-    gender:      ["男", "女"].includes(req.body?.gender) ? req.body.gender : null,
-    remark:      String(req.body?.remark ?? "").slice(0, 255).trim(),
-    credit:      String(req.body?.credit ?? "100|1").slice(0, 16).trim(),
-    win_mode:    [1, 0, 2].includes(Number(req.body?.win_mode)) ? Number(req.body.win_mode) : 2,
-    tag:         String(req.body?.tag ?? "蓝随机").slice(0, 32).trim(),
-    status:      req.body?.status === "启用" || req.body?.status === 1 || req.body?.status === "1" ? 1 : 0,
-    direction:   req.body?.direction === "up" || req.body?.direction === "涨" ? "涨" : "跌",
-    ban_order:   req.body?.ban_order   === "ban"   || req.body?.ban_order   === 1 || req.body?.ban_order   === "1" ? 1 : 0,
-    ban_withdraw: req.body?.ban_withdraw === "ban" || req.body?.ban_withdraw === 1 || req.body?.ban_withdraw === "1" ? 1 : 0,
-  };
+  // partial update: 只更新 req.body 里实际提供的字段(其它保持原值,不被 default 清空)
+  const fields: Record<string, any> = {};
+  if (req.body?.nickname !== undefined) {
+    fields.nickname = String(req.body.nickname).slice(0, 64).trim();
+  }
+  if (req.body?.phone !== undefined) {
+    fields.phone = String(req.body.phone).slice(0, 32).trim();
+  }
+  if (req.body?.email !== undefined) {
+    fields.email = String(req.body.email).slice(0, 128).trim();
+  }
+  if (req.body?.gender !== undefined) {
+    fields.gender = ["男", "女"].includes(req.body.gender) ? req.body.gender : null;
+  }
+  if (req.body?.remark !== undefined) {
+    fields.remark = String(req.body.remark).slice(0, 255).trim();
+  }
+  if (req.body?.credit !== undefined) {
+    fields.credit = String(req.body.credit).slice(0, 16).trim();
+  }
+  if (req.body?.win_mode !== undefined) {
+    fields.win_mode = [1, 0, 2].includes(Number(req.body.win_mode)) ? Number(req.body.win_mode) : 2;
+  }
+  if (req.body?.tag !== undefined) {
+    fields.tag = String(req.body.tag).slice(0, 32).trim();
+  }
+  if (req.body?.status !== undefined) {
+    fields.status = req.body.status === "启用" || req.body.status === 1 || req.body.status === "1" ? 1 : 0;
+  }
+  if (req.body?.direction !== undefined) {
+    fields.direction = req.body.direction === "up" || req.body.direction === "涨" ? "涨" : "跌";
+  }
+  if (req.body?.ban_order !== undefined) {
+    fields.ban_order = req.body.ban_order === "ban" || req.body.ban_order === 1 || req.body.ban_order === "1" ? 1 : 0;
+  }
+  if (req.body?.ban_withdraw !== undefined) {
+    fields.ban_withdraw = req.body.ban_withdraw === "ban" || req.body.ban_withdraw === 1 || req.body.ban_withdraw === "1" ? 1 : 0;
+  }
+
+  // 没有任何字段要更新 — 直接返回成功
+  if (Object.keys(fields).length === 0) {
+    return res.json({ ok: true, member: null, no_op: true });
+  }
 
   try {
     const setSql = Object.keys(fields).map(k => `\`${k}\` = ?`).join(", ");
@@ -1524,7 +1694,7 @@ app.post("/api/withdrawals", async (req, res) => {
     );
     const m = (mRows as any[])[0];
     if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found" }); }
-    if (m.status === 0)  { await conn.rollback(); return res.status(403).json({ error: "account_disabled", message: "账号已被禁用" }); }
+    // 禁提(ban_withdraw)独立语义 — 不再受 status 拦截影响
     if (m.ban_withdraw === 1) { await conn.rollback(); return res.status(403).json({ error: "ban_withdraw", message: "您已被禁提" }); }
     if (!m.fund_password) { await conn.rollback(); return res.status(400).json({ error: "no_fund_password", message: "请先设置资金密码" }); }
     if (!bcrypt.compareSync(fundPwd, m.fund_password)) {
@@ -2283,11 +2453,10 @@ app.post("/api/messages", async (req, res) => {
 app.post("/api/members/:id/recharge", async (req, res) => {
   const memberId = Number(req.params.id);
   const amount = Number(req.body?.amount);
-  const notes  = String(req.body?.notes ?? "").slice(0, 255).trim();
+  const notes  = String(req.body?.notes ?? "").slice(0, 255).trim() || "System";
   const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
   if (!Number.isFinite(amount) || amount <= 0)     return res.status(400).json({ error: "invalid_amount", message: "金额必须为正数" });
-  if (!notes)                                       return res.status(400).json({ error: "missing_notes",  message: "请填写备注" });
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
   if (!access) return;
@@ -2334,11 +2503,10 @@ app.post("/api/members/:id/recharge", async (req, res) => {
 app.post("/api/members/:id/deduct", async (req, res) => {
   const memberId = Number(req.params.id);
   const amount = Number(req.body?.amount);
-  const notes  = String(req.body?.notes ?? "").slice(0, 255).trim();
+  const notes  = String(req.body?.notes ?? "").slice(0, 255).trim() || "System";
   const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
   if (!Number.isFinite(amount) || amount <= 0)     return res.status(400).json({ error: "invalid_amount", message: "金额必须为正数" });
-  if (!notes)                                       return res.status(400).json({ error: "missing_notes",  message: "请填写备注" });
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
   if (!access) return;
@@ -2389,12 +2557,11 @@ app.post("/api/members/:id/freeze", async (req, res) => {
   const memberId  = Number(req.params.id);
   const amount    = Number(req.body?.amount);
   const action    = String(req.body?.action ?? "freeze");  // "freeze" | "unfreeze"
-  const notes     = String(req.body?.notes ?? "").slice(0, 255).trim();
+  const notes     = String(req.body?.notes ?? "").slice(0, 255).trim() || "System";
   const reviewer  = String(req.body?.reviewer ?? "admin").slice(0, 64);
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
   if (!Number.isFinite(amount)   || amount   <= 0) return res.status(400).json({ error: "invalid_amount",  message: "金额必须为正数" });
   if (!["freeze","unfreeze"].includes(action))      return res.status(400).json({ error: "invalid_action" });
-  if (!notes)                                       return res.status(400).json({ error: "missing_notes",   message: "请填写备注" });
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
   if (!access) return;
@@ -2915,7 +3082,7 @@ app.post("/api/orders", async (req, res) => {
     );
     const m = (mRows as any[])[0];
     if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "用户不存在" }); }
-    if (m.status === 0) { await conn.rollback(); return res.status(403).json({ error: "account_disabled", message: "账号已被禁用" }); }
+    // 禁单(ban_order)独立语义 — 不再受 status 拦截影响
     if (m.ban_order === 1) { await conn.rollback(); return res.status(403).json({ error: "ban_order", message: "您已被禁单" }); }
     const balance = Number(m.balance);
     if (balance < amount) {

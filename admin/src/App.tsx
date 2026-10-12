@@ -10,7 +10,8 @@ type Page =
   | "home" | "members" | "digital-wallet" | "bank-wallet"
   | "messages" | "report-inout" | "recharge-list"
   | "withdraw-list" | "fund-details" | "order-list"
-  | "profile" | "employees";
+  | "profile" | "employees"
+  | "support-links";
 
 type Tab = { id: Page; label: string };
 
@@ -468,6 +469,41 @@ function MembersPage() {
   // 编辑弹窗:被编辑的会员(null = 关闭)
   const [editTarget, setEditTarget] = useState<Member | null>(null);
 
+  // ToggleCell 即时保存 — 列表里切换「禁单/禁提/输赢模式/方向」立即调 API 写后端
+  // 乐观更新本地 state,失败回滚 + toast
+  // 参数:
+  //   m          : 会员对象
+  //   field      : 后端字段名
+  //   toBackend  : UI 值 → 后端值的映射
+  //   toUi       : 后端值 → UI 值的映射(用于回滚时刷新本地 state)
+  //   setLocal   : 本地 UI state setter (prev: Record) => Record
+  //   newUiValue : 用户点选的新 UI 值
+  const patchToggle = async <T extends string>(
+    m: MemberEx,
+    field: "ban_order" | "ban_withdraw" | "win_mode" | "direction",
+    newUiValue: T,
+    setLocal: (id: number, v: T) => void,
+    toBackend: (v: T) => number | string,
+    toUi: (v: number | string) => T,
+  ) => {
+    const backendValue = toBackend(newUiValue);
+    const oldBackendValue = (m as any)[field];
+    const oldUiValue = toUi(oldBackendValue);
+    // 乐观更新
+    setLocal(m.id, newUiValue);
+    setList(prev => prev.map(x => x.id === m.id ? { ...x, [field]: backendValue } : x));
+    try {
+      await api.updateMember(m.id, { [field]: backendValue } as any);
+      setToast({ text: `✔ ${m.account} 已更新`, kind: "ok" });
+    } catch (e: any) {
+      // 回滚
+      setLocal(m.id, oldUiValue);
+      setList(prev => prev.map(x => x.id === m.id ? { ...x, [field]: oldBackendValue } : x));
+      setToast({ text: `✘ 保存失败: ${e.message || e}`, kind: "err" });
+      await load();
+    }
+  };
+
   // 保存成功提示(toast)
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
   useEffect(() => {
@@ -484,40 +520,26 @@ function MembersPage() {
     // 1) 乐观更新本地状态(立刻可见)
     setList(prev => prev.map(m => m.id === id ? {
       ...m,
-      credit:       data.credit,
-      tag:          data.level,
-      status:       data.status === "启用" ? 1 : 0,
-      direction:    (data.direction === "up" ? "涨" : "跌") as Member["direction"],
-      ban_order:    data.banOrder    === "ban" ? 1 : 0,
-      ban_withdraw: data.banWithdraw === "ban" ? 1 : 0,
+      credit:   data.credit,
+      tag:      data.level,
       nickname: data.nickname,
       phone:    data.phone,
       email:    data.email,
       gender:   data.gender,
       remark:   data.remark,
     } : m));
-    setWinMode(prev => ({ ...prev, [id]: data.winMode }));
-    setDirectionMode(prev => ({ ...prev, [id]: data.direction }));
-    setBanOrderMode(prev => ({ ...prev, [id]: data.banOrder }));
-    setBanWithdrawMode(prev => ({ ...prev, [id]: data.banWithdraw }));
 
     // 2) 异步写后端;失败回滚 + 重拉
     try {
-      // 把 winMode 字符串映射成 1=要赢 0=要输 2=随机,发到后端 whitelist
-      const winModeNum = data.winMode === 'win' ? 1 : data.winMode === 'lose' ? 0 : 2;
+      // 编辑弹窗只管基本信息;输赢/方向/禁单/禁提/状态由列表上的 ToggleCell 单独管
       await api.updateMember(id, {
-        nickname:    data.nickname,
-        phone:       data.phone,
-        email:       data.email,
-        gender:      data.gender,
-        remark:      data.remark,
-        credit:      data.credit,
-        win_mode:    winModeNum,
-        tag:         data.level,
-        status:      data.status,
-        direction:   data.direction,
-        ban_order:   data.banOrder,
-        ban_withdraw: data.banWithdraw,
+        nickname: data.nickname,
+        phone:    data.phone,
+        email:    data.email,
+        gender:   data.gender,
+        remark:   data.remark,
+        credit:   data.credit,
+        tag:      data.level,
       });
       setToast({ text: `✔ 已保存 ${data.account} 的修改`, kind: "ok" });
     } catch (e: any) {
@@ -752,28 +774,48 @@ function MembersPage() {
                     <ToggleCell
                       value={winMode[m.id] ?? "win"}
                       options={WIN_MODE_OPTIONS}
-                      onChange={v => setWinMode(prev => ({ ...prev, [m.id]: v }))}
+                      onChange={v => patchToggle(
+                        m, "win_mode", v,
+                        (id, val) => setWinMode(prev => ({ ...prev, [id]: val })),
+                        val => val === "win" ? 1 : val === "lose" ? 0 : 2,
+                        val => val === 1 ? "win" : val === 0 ? "lose" : "random",
+                      )}
                     />
                   </td>
                   <td>
                     <ToggleCell
                       value={directionMode[m.id] ?? "up"}
                       options={DIRECTION_OPTIONS}
-                      onChange={v => setDirectionMode(prev => ({ ...prev, [m.id]: v }))}
+                      onChange={v => patchToggle(
+                        m, "direction", v,
+                        (id, val) => setDirectionMode(prev => ({ ...prev, [id]: val })),
+                        val => val === "up" ? "涨" : "跌",
+                        val => val === "涨" ? "up" : "down",
+                      )}
                     />
                   </td>
                   <td>
                     <ToggleCell
                       value={banOrderMode[m.id] ?? "allow"}
                       options={BAN_OPTIONS}
-                      onChange={v => setBanOrderMode(prev => ({ ...prev, [m.id]: v }))}
+                      onChange={v => patchToggle(
+                        m, "ban_order", v,
+                        (id, val) => setBanOrderMode(prev => ({ ...prev, [id]: val })),
+                        val => val === "ban" ? 1 : 0,
+                        val => val === 1 ? "ban" : "allow",
+                      )}
                     />
                   </td>
                   <td>
                     <ToggleCell
                       value={banWithdrawMode[m.id] ?? "allow"}
                       options={BAN_OPTIONS}
-                      onChange={v => setBanWithdrawMode(prev => ({ ...prev, [m.id]: v }))}
+                      onChange={v => patchToggle(
+                        m, "ban_withdraw", v,
+                        (id, val) => setBanWithdrawMode(prev => ({ ...prev, [id]: val })),
+                        val => val === "ban" ? 1 : 0,
+                        val => val === 1 ? "ban" : "allow",
+                      )}
                     />
                   </td>
                   <td style={{ color: "#888" }}>{m.agent_id}</td>
@@ -845,13 +887,9 @@ function MembersPage() {
         </div>
       </div>
 
-      {/* 编辑弹窗 */}
+      {/* 编辑弹窗 — 只管基本信息;输赢/方向/禁单/禁提 由列表上的 ToggleCell 单独管 */}
       <EditMemberModal
         member={editTarget}
-        winMode={editTarget ? winMode[editTarget.id] : undefined}
-        direction={editTarget ? directionMode[editTarget.id] : undefined}
-        banOrder={editTarget ? banOrderMode[editTarget.id] : undefined}
-        banWithdraw={editTarget ? banWithdrawMode[editTarget.id] : undefined}
         onClose={() => setEditTarget(null)}
         onSave={saveMember}
       />
@@ -1010,12 +1048,7 @@ interface EditFormData {
   email:       string;
   credit:      string;
   level:       string;
-  winMode:     "win" | "lose" | "random";
-  direction:   "up" | "down";
-  banOrder:    "allow" | "ban";
-  banWithdraw: "allow" | "ban";
   gender:      "男" | "女";
-  status:      "启用" | "禁用";
   remark:      string;
 }
 
@@ -1322,17 +1355,21 @@ function FundModal({
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 420, background: "#fff", borderRadius: 8,
+          width: 420,
+          maxHeight: "calc(100vh - 32px)",
+          background: "#fff", borderRadius: 8,
           boxShadow: "0 12px 48px rgba(0,0,0,.25)",
+          display: "flex", flexDirection: "column",
           overflow: "hidden",
           fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
-        {/* 标题栏 */}
+        {/* 标题栏 — 始终固定可见 */}
         <div style={{
           height: 44, padding: "0 16px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           background: "#fafafa", borderBottom: "1px solid #f0f0f0",
+          flexShrink: 0,
         }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: accent }}>{title}</span>
           <button
@@ -1344,8 +1381,8 @@ function FundModal({
           >×</button>
         </div>
 
-        {/* 主体 */}
-        <div style={{ padding: 24 }}>
+        {/* 主体 — 内容多时内部滚动,标题/底部固定 */}
+        <div style={{ padding: 24, flex: 1, overflowY: "auto", minHeight: 0 }}>
           {/* 会员信息 */}
           <div style={{
             display: "flex", alignItems: "center", gap: 12,
@@ -1387,9 +1424,9 @@ function FundModal({
             }}
           />
 
-          {/* 备注 */}
+          {/* 备注 — 选填;留空后端自动填 "System" */}
           <label style={{ display: "block", fontSize: 14, color: "#555", marginBottom: 6 }}>
-            备注 <span style={{ color: "#f5222d" }}>*</span>
+            备注(选填,留空默认 System)
           </label>
           <textarea
             value={notes}
@@ -1415,11 +1452,12 @@ function FundModal({
           )}
         </div>
 
-        {/* 底部 */}
+        {/* 底部 — 始终固定可见,不随内容滚动 */}
         <div style={{
           padding: "12px 24px",
           background: "#fafafa", borderTop: "1px solid #f0f0f0",
           display: "flex", justifyContent: "flex-end", gap: 10,
+          flexShrink: 0,
         }}>
           <button
             onClick={onClose}
@@ -1525,17 +1563,21 @@ function FreezeModal({
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 420, background: "#fff", borderRadius: 8,
+          width: 420,
+          maxHeight: "calc(100vh - 32px)",
+          background: "#fff", borderRadius: 8,
           boxShadow: "0 12px 48px rgba(0,0,0,.25)",
+          display: "flex", flexDirection: "column",
           overflow: "hidden",
           fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
-        {/* 标题栏 */}
+        {/* 标题栏 — 始终固定可见 */}
         <div style={{
           height: 44, padding: "0 16px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           background: "#fafafa", borderBottom: "1px solid #f0f0f0",
+          flexShrink: 0,
         }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: accent }}>{title}</span>
           <button
@@ -1600,7 +1642,7 @@ function FreezeModal({
           />
 
           <label style={{ display: "block", fontSize: 14, color: "#555", marginBottom: 6 }}>
-            备注 <span style={{ color: "#f5222d" }}>*</span>
+            备注(选填,留空默认 System)
           </label>
           <textarea
             value={notes}
@@ -1732,11 +1774,12 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
           fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
-        {/* 标题栏 */}
+        {/* 标题栏 — 始终固定可见 */}
         <div style={{
           height: 44, padding: "0 16px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           background: "#fafafa", borderBottom: "1px solid #f0f0f0",
+          flexShrink: 0,
         }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: accent }}>{title}</span>
           <button
@@ -1748,8 +1791,8 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
           >×</button>
         </div>
 
-        {/* 主体 */}
-        <div style={{ padding: 24 }}>
+        {/* 主体 — 内容多时内部滚动,标题/底部固定 */}
+        <div style={{ padding: 24, flex: 1, overflowY: "auto", minHeight: 0 }}>
           {/* 会员信息 */}
           <div style={{
             display: "flex", alignItems: "center", gap: 12,
@@ -1850,11 +1893,12 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
           )}
         </div>
 
-        {/* 底部 */}
+        {/* 底部 — 始终固定可见,不随内容滚动 */}
         <div style={{
           padding: "12px 24px",
           background: "#fafafa", borderTop: "1px solid #f0f0f0",
           display: "flex", justifyContent: "flex-end", gap: 10,
+          flexShrink: 0,
         }}>
           <button
             onClick={onClose}
@@ -1884,24 +1928,16 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
   );
 }
 
-function EditMemberModal({ member, onClose, onSave,
-  winMode: winInit, direction: dirInit,
-  banOrder: banOrderInit, banWithdraw: banWithdrawInit }: {
+function EditMemberModal({ member, onClose, onSave }: {
   member: Member | null;
   onClose: () => void;
   onSave: (data: EditFormData) => void;
-  // 来自 MembersPage 的当前 ToggleCell 状态,用于回填表单
-  winMode?:     "win" | "lose" | "random";
-  direction?:   "up" | "down";
-  banOrder?:    "allow" | "ban";
-  banWithdraw?: "allow" | "ban";
 }) {
   const [mode, setMode] = useState<"normal" | "min" | "max">("normal");
   const [data, setData] = useState<EditFormData>({
     account: "", nickname: "", phone: "", email: "",
     credit: "", level: "",
-    winMode: "win", direction: "up", banOrder: "allow", banWithdraw: "allow",
-    gender: "男", status: "启用", remark: "",
+    gender: "男", remark: "",
   });
   const [touched, setTouched] = useState(false);
 
@@ -1915,17 +1951,12 @@ function EditMemberModal({ member, onClose, onSave,
       email:    (member as MemberEx).email    || "",
       credit:   String(member.credit || ""),
       level:    String(member.tag || ""),
-      winMode:     winInit     ?? "win",
-      direction:   dirInit      ?? "up",
-      banOrder:    banOrderInit ?? (member.ban_order   ? "ban" : "allow"),
-      banWithdraw: banWithdrawInit ?? (member.ban_withdraw ? "ban" : "allow"),
       gender: (member as MemberEx).gender || "男",
-      status: member.status === 1 ? "启用" : "禁用",
       remark: (member as MemberEx).remark || "",
     });
     setTouched(false);
     setMode("normal");
-  }, [member?.id, winInit, dirInit, banOrderInit, banWithdrawInit]);
+  }, [member?.id]);
 
   // ESC 关闭(必须在 early return 之前,保证 hooks 顺序稳定)
   useEffect(() => {
@@ -1942,8 +1973,7 @@ function EditMemberModal({ member, onClose, onSave,
 
   // 必填校验
   const required: (keyof EditFormData)[] = [
-    "nickname","phone","email","credit","level",
-    "winMode","direction","banOrder","banWithdraw","gender","status","remark",
+    "nickname","phone","email","credit","level","gender","remark",
   ];
   const errs: Partial<Record<keyof EditFormData, string>> = {};
   if (touched) {
@@ -2132,50 +2162,6 @@ function EditMemberModal({ member, onClose, onSave,
                     style={inputStyle(!!errs.level)}
                   />
                 </Field>
-                <Field label="输赢">
-                  <select
-                    value={data.winMode}
-                    onChange={e => setField("winMode", e.target.value as any)}
-                    style={inputStyle(!!errs.winMode)}
-                  >
-                    {WIN_MODE_OPTIONS.map(o =>
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    )}
-                  </select>
-                </Field>
-                <Field label="方向">
-                  <select
-                    value={data.direction}
-                    onChange={e => setField("direction", e.target.value as any)}
-                    style={inputStyle(!!errs.direction)}
-                  >
-                    {DIRECTION_OPTIONS.map(o =>
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    )}
-                  </select>
-                </Field>
-                <Field label="禁单">
-                  <select
-                    value={data.banOrder}
-                    onChange={e => setField("banOrder", e.target.value as any)}
-                    style={inputStyle(!!errs.banOrder)}
-                  >
-                    {BAN_OPTIONS.map(o =>
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    )}
-                  </select>
-                </Field>
-                <Field label="禁提">
-                  <select
-                    value={data.banWithdraw}
-                    onChange={e => setField("banWithdraw", e.target.value as any)}
-                    style={inputStyle(!!errs.banWithdraw)}
-                  >
-                    {BAN_OPTIONS.map(o =>
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    )}
-                  </select>
-                </Field>
                 <Field label="性别">
                   <select
                     value={data.gender}
@@ -2184,16 +2170,6 @@ function EditMemberModal({ member, onClose, onSave,
                   >
                     <option value="男">男</option>
                     <option value="女">女</option>
-                  </select>
-                </Field>
-                <Field label="状态">
-                  <select
-                    value={data.status}
-                    onChange={e => setField("status", e.target.value as any)}
-                    style={inputStyle(!!errs.status)}
-                  >
-                    <option value="启用">启用</option>
-                    <option value="禁用">禁用</option>
                   </select>
                 </Field>
                 {/* 备注 — 跨两列 */}
@@ -3746,6 +3722,7 @@ const menuConfig: MenuGroup[] = [
     { key: "fund-details",  label: "资金明细" },
   ]},
   { key: "orders", label: "订单管理", icon: "📋", page: "order-list" },
+  { key: "support-links", label: "客服链接", icon: "💬", page: "support-links" },
 ];
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -3886,6 +3863,7 @@ function renderPage(page: Page, onNavigate: (p: Page) => void) {
     case "withdraw-list": return <WithdrawListPage />;
     case "fund-details":  return <FundDetailsPage />;
     case "order-list":    return <OrderListPage />;
+    case "support-links": return <SupportLinksPage />;
     case "employees":     return <EmployeesPage />;
     case "profile":       return <ProfilePage />;
     default: return <HomePage onNavigate={onNavigate} />;
@@ -3904,6 +3882,248 @@ type Employee = {
   created_at: string;
   customer_count: number;
   ip_rules?: IpRule[];
+};
+
+function SupportLinksPage() {
+  const [list, setList] = useState<SupportLinkRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState<SupportLinkRow | null>(null);
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api.listSupportLinks();
+      setList(r.data);
+    } catch (e: any) {
+      setToast({ kind: "err", msg: "加载失败: " + (e?.message || e) });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const onDelete = async (row: SupportLinkRow) => {
+    if (row.agent_id === 0) {
+      setToast({ kind: "err", msg: "全局默认链接不能删除" });
+      return;
+    }
+    if (!window.confirm(`确定删除「${row.display_name}」的客服链接吗?`)) return;
+    try {
+      await api.deleteSupportLink(row.agent_id);
+      setToast({ kind: "ok", msg: "✔ 已删除" });
+      await load();
+    } catch (e: any) {
+      setToast({ kind: "err", msg: "✘ 删除失败: " + (e?.message || e) });
+    }
+  };
+
+  return (
+    <div className="page" style={{ padding: 16 }}>
+      <h2 style={{ fontSize: 18, marginBottom: 12, color: "#333" }}>💬 客服链接管理</h2>
+      <p style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
+        给每个员工/组配一个客服链接。前台 build 时用{" "}
+        <code style={{ background: "#f5f5f5", padding: "0 4px", borderRadius: 3, margin: "0 4px" }}>
+          VITE_AGENT_ID={"<"}id{">"}
+        </code>{" "}
+        注入,启动后前端自动用本表对应的链接。
+      </p>
+
+      {loading && list.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "#999" }}>加载中...</div>
+      ) : (
+        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 8, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#fafafa", borderBottom: "1px solid #f0f0f0" }}>
+                <th style={th}>员工 / 组</th>
+                <th style={th}>角色</th>
+                <th style={th}>邀请码</th>
+                <th style={th}>客服链接</th>
+                <th style={th}>备注</th>
+                <th style={{ ...th, width: 140 }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(row => (
+                <tr key={row.agent_id} style={{ borderBottom: "1px solid #f5f5f5" }}>
+                  <td style={td}>
+                    <div style={{ fontWeight: 600 }}>{row.display_name}</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>@{row.username} · #{row.agent_id}</div>
+                  </td>
+                  <td style={td}>
+                    <span style={{ fontSize: 12, color: row.role === "super" ? "#fa8c16" : row.role === "default" ? "#888" : "#1890ff" }}>
+                      {row.role === "default" ? "全局默认" : row.role === "super" ? "super" : row.role === "admin" ? "员工" : row.role}
+                    </span>
+                  </td>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 13 }}>{row.invite_code || "—"}</td>
+                  <td style={td}>
+                    {row.link ? (
+                      <div>
+                        <a href={row.link.url} target="_blank" rel="noopener noreferrer" style={{ color: "#1890ff", fontSize: 13, wordBreak: "break-all" }}>
+                          {row.link.url}
+                        </a>
+                        {row.link.label && <div style={{ fontSize: 11, color: "#999" }}>{row.link.label}</div>}
+                      </div>
+                    ) : (
+                      <span style={{ color: "#ccc", fontSize: 13 }}>未配置</span>
+                    )}
+                  </td>
+                  <td style={{ ...td, fontSize: 12, color: "#888" }}>{row.link?.note || "—"}</td>
+                  <td style={td}>
+                    <button onClick={() => setEditing(row)} style={btnPrimary}>编辑</button>
+                    {row.agent_id !== 0 && (
+                      <button onClick={() => onDelete(row)} style={{ ...btnDanger, marginLeft: 6 }}>删除</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)",
+          padding: "8px 18px", borderRadius: 6, fontSize: 13, zIndex: 9999,
+          background: toast.kind === "ok" ? "#52c41a" : "#f5222d",
+          color: "white", boxShadow: "0 4px 12px rgba(0,0,0,.15)",
+        }}>{toast.msg}</div>
+      )}
+
+      {editing && (
+        <EditSupportLinkModal
+          row={editing}
+          onClose={() => setEditing(null)}
+          onSaved={async (msg) => {
+            setEditing(null);
+            await load();
+            setToast({ kind: "ok", msg: msg || "✔ 已保存" });
+          }}
+          onError={(msg) => setToast({ kind: "err", msg: "✘ 保存失败: " + msg })}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditSupportLinkModal({ row, onClose, onSaved, onError }: {
+  row: SupportLinkRow;
+  onClose: () => void;
+  onSaved: (msg?: string) => void;
+  onError: (msg: string) => void;
+}) {
+  const [url, setUrl]   = useState(row.link?.url   || "");
+  const [label, setLabel] = useState(row.link?.label || "");
+  const [note, setNote]   = useState(row.link?.note  || "");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!url.trim()) { onError("请填写客服链接 URL"); return; }
+    setSaving(true);
+    try {
+      await api.upsertSupportLink(row.agent_id, { url: url.trim(), label: label.trim(), note: note.trim() });
+      onSaved(row.link ? "✔ 已更新客服链接" : "✔ 已新增客服链接");
+    } catch (e: any) {
+      onError(e?.message || String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 1000,
+      background: "rgba(0,0,0,.45)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: 480, maxWidth: "92%", background: "white", borderRadius: 8,
+        padding: 20, boxShadow: "0 12px 48px rgba(0,0,0,.25)",
+      }}>
+        <h3 style={{ fontSize: 16, marginBottom: 4, color: "#333" }}>
+          配置客服链接
+        </h3>
+        <p style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>
+          {row.display_name} (@{row.username}) · agent_id = {row.agent_id}
+        </p>
+
+        <label style={{ display: "block", fontSize: 13, color: "#555", marginBottom: 6 }}>
+          客服链接 URL <span style={{ color: "#f5222d" }}>*</span>
+        </label>
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://t.me/your_support 或 https://wa.me/1234567890"
+          style={{
+            width: "100%", padding: "8px 10px",
+            border: "1px solid #d9d9d9", borderRadius: 4, fontSize: 14, outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+
+        <label style={{ display: "block", fontSize: 13, color: "#555", margin: "12px 0 6px" }}>
+          显示名(可选)
+        </label>
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="如:Telegram @xxx_support"
+          style={{
+            width: "100%", padding: "8px 10px",
+            border: "1px solid #d9d9d9", borderRadius: 4, fontSize: 14, outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+
+        <label style={{ display: "block", fontSize: 13, color: "#555", margin: "12px 0 6px" }}>
+          备注(可选)
+        </label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          placeholder="这个客服给哪个前端用的"
+          style={{
+            width: "100%", padding: "8px 10px",
+            border: "1px solid #d9d9d9", borderRadius: 4, fontSize: 14, outline: "none",
+            boxSizing: "border-box", fontFamily: "inherit", resize: "vertical",
+          }}
+        />
+
+        <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button onClick={onClose} style={{
+            padding: "8px 18px", border: "1px solid #d9d9d9", borderRadius: 4,
+            background: "white", color: "#555", fontSize: 14, cursor: "pointer",
+          }}>取消</button>
+          <button onClick={submit} disabled={saving} style={{
+            padding: "8px 22px", border: "none", borderRadius: 4,
+            background: saving ? "#b7eb8f" : "#52c41a", color: "white",
+            fontSize: 14, fontWeight: 600, cursor: saving ? "default" : "pointer",
+          }}>{saving ? "保存中…" : "保存"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const th: React.CSSProperties = { padding: "10px 12px", textAlign: "left", fontSize: 13, fontWeight: 600, color: "#555" };
+const td: React.CSSProperties = { padding: "10px 12px", fontSize: 13, color: "#333", verticalAlign: "top" };
+const btnPrimary: React.CSSProperties = {
+  padding: "4px 12px", border: "1px solid #1890ff", borderRadius: 3,
+  background: "#e6f4ff", color: "#1890ff", fontSize: 12, cursor: "pointer",
+};
+const btnDanger: React.CSSProperties = {
+  padding: "4px 12px", border: "1px solid #ff4d4f", borderRadius: 3,
+  background: "#fff1f0", color: "#ff4d4f", fontSize: 12, cursor: "pointer",
 };
 
 function EmployeesPage() {

@@ -1,9 +1,13 @@
 import { ArrowLeft, ExternalLink, Shield, FileCheck, Scale, Award } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { getSupportLink } from '../config';
 
 export function RegulatoryPage() {
   const { t } = useLanguage();
+  const [supportUrl, setSupportUrl] = useState("https://t.me/your_support");
+  useEffect(() => { getSupportLink().then(l => setSupportUrl(l.url)); }, []);
   
   const regulatoryInfo = [
     {
@@ -171,8 +175,8 @@ export function RegulatoryPage() {
           <p className="text-xs text-gray-400 mb-4">
             {t('regulatory.helpDesc')}
           </p>
-          <a 
-            href="https://google.com"
+          <a
+            href={supportUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="w-full bg-gradient-to-r from-[#c4f82a] to-yellow-500 text-black py-3 rounded-xl flex items-center justify-center gap-2 hover:from-yellow-400 hover:to-yellow-500 transition-all"

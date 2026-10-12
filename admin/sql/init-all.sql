@@ -6,6 +6,7 @@
 --   - schema-admin.sql     (1 张管理员表)
 --   - migrations/2026_admin_ip_whitelist.sql  (员工 IP 白名单)
 --   - migrations/2026_retired_invite.sql      (作废邀请码)
+--   - migrations/2026_support_link.sql       (前端客服链接配置)
 --
 -- 历史 migrations 已合并到 schema.sql,这里不再重复 ALTER:
 --   - 2026_member_session.sql    (session_token 已在 schema.sql)
@@ -267,3 +268,22 @@ CREATE TABLE IF NOT EXISTS `retired_invite_codes` (
   UNIQUE KEY `uk_invite_code` (`invite_code`),
   KEY `idx_admin_id`        (`admin_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='已作废邀请码';
+
+-- ============================================
+-- 前端客服链接 (来自 migrations/2026_support_link.sql)
+-- ============================================
+CREATE TABLE IF NOT EXISTS `support_links` (
+  `id`         INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  `agent_id`   INT UNSIGNED  NOT NULL DEFAULT 0    COMMENT '0=全局默认;N=指定总代',
+  `label`      VARCHAR(64)   NOT NULL DEFAULT ''  COMMENT '显示名(如:Telegram @xxx_support)',
+  `url`        VARCHAR(512)  NOT NULL             COMMENT '客服链接(Telegram / WhatsApp / 微信 / 网页 等)',
+  `note`       VARCHAR(255)  NOT NULL DEFAULT ''  COMMENT '备注(谁配的/配给哪个前端)',
+  `updated_by` VARCHAR(64)   NOT NULL DEFAULT 'admin' COMMENT '最后修改人',
+  `updated_at` DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_agent` (`agent_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='前端客服链接配置';
+
+-- 默认全局链接(占位 — 后台 super 进「客服链接」页面时改掉)
+INSERT IGNORE INTO `support_links` (`agent_id`, `label`, `url`, `note`, `updated_by`)
+VALUES (0, 'Default Support', 'https://t.me/your_support', '请在后台「客服链接」页面改为你自己的客服地址', 'system');

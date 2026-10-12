@@ -10,6 +10,7 @@ import { CryptoLogo } from './CryptoLogo';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useLeverage } from '../contexts/LeverageContext';
 import { MARKET_COINS, MarketCoin } from '../data/marketConfig';
+import { getSupportLink } from '../config';
 
 interface HotCoin {
   name: string;
@@ -122,7 +123,7 @@ function MarketTableRow({ coin, price, change, positive }: {
       <div className="col-span-4 flex items-center gap-3 min-w-0">
         <CryptoLogo symbol={coin.key} name={coin.key} color={coin.color} />
         <div className="min-w-0">
-          <div className="text-base text-white truncate">{coin.key}</div>
+          <div className="text-base text-white truncate">{coin.key === 'APT' ? coin.name : coin.key}</div>
           <div className="text-xs text-gray-500 truncate">{coin.name}</div>
         </div>
       </div>
@@ -155,6 +156,8 @@ export function HomePage() {
   const [showLanguageSelector, setShowLanguageSelector] = useState(false);
   const { t } = useLanguage();
   const { leverage } = useLeverage();
+  const [supportUrl, setSupportUrl] = useState("https://t.me/your_support");
+  useEffect(() => { getSupportLink().then(l => setSupportUrl(l.url)); }, []);
 
   // 排序状态
   const [sortKey, setSortKey] = useState<'price' | 'change' | null>(null);
@@ -339,8 +342,11 @@ export function HomePage() {
       {/* Hero Section with Slider */}
       <div className="relative px-6 py-4">
         <div className="text-center mb-4">
-          <h1 className="text-2xl mb-2 italic">CAREFULLY</h1>
-          <h1 className="text-2xl italic">SELECTED FOR YOU</h1>
+          <img
+            src="/logo.png"
+            alt="CryptoX"
+            className="mx-auto w-full max-w-md h-auto object-contain"
+          />
         </div>
 
         <Slider {...sliderSettings}>
@@ -373,7 +379,7 @@ export function HomePage() {
               return (
                 <a
                   key={idx}
-                  href="https://t.me/your_support"
+                  href={supportUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex flex-col items-center gap-2"

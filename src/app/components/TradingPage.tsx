@@ -1,10 +1,11 @@
-import { ArrowLeft, Star, Menu, X, ChevronUp, ChevronDown, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Star, Menu, X, ChevronUp, ChevronDown, AlertCircle, ShieldOff } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ProductListSidebar } from './ProductListSidebar';
 import { TradingViewWidget } from './TradingViewWidget';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { MARKET_COINS, MarketCoin } from '../data/marketConfig';
 
 // 周期选项 (时间 + 收益率 — 写死对应关系,选周期即定收益率)
 const PERIODS: { duration: string; returnRate: string; value: number }[] = [
@@ -89,6 +90,7 @@ export function TradingPage() {
   const [orderAmount, setOrderAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [bannedDialog, setBannedDialog] = useState(false);  // 禁单对话框 — 后端 ban_order 拦截时弹
 
   // 收益率跟随周期(写死对应关系):30s→20%, 60s→30%, 120s→40%, 180s→50%, 240s→60%
   const selectedReturnRate = (PERIODS.find(p => p.duration === selectedPeriod)?.value) ?? 20;
@@ -146,6 +148,17 @@ export function TradingPage() {
     : '--';
 
   const baseCoin = tradingSymbol.replace(/USDT$/, '');
+
+  // 显示名称 — 从 MARKET_COINS 找映射(同名替换 e.g. APT → Bitcoin Gold)
+  const displayCoin = useMemo(() => {
+    return (MARKET_COINS as MarketCoin[]).find(
+      c => c.symbol === `BINANCE:${tradingSymbol}`
+    );
+  }, [tradingSymbol]);
+  const displayShort = displayCoin?.key || baseCoin;
+  const displayFull = displayCoin?.name || baseCoin;
+  // Header 显示:其它币种用简称 key,APT 特殊用全称 name(=BTG)
+  const displayHeader = displayCoin?.key === 'APT' ? displayFull : displayShort;
   const currentReturn = `${selectedReturnRate}%`;
 
   // 提交订单
@@ -177,7 +190,13 @@ export function TradingPage() {
       });
       const data = await r.json();
       if (!r.ok || !data.ok) {
-        setSubmitError(data.message || 'Order failed');
+        // 禁单 — 弹独立红色对话框(更醒目,提示这是管理员操作)
+        if (data?.error === 'ban_order') {
+          setBannedDialog(true);
+          setSubmitError(null);
+        } else {
+          setSubmitError(data.message || 'Order failed');
+        }
         return;
       }
       // 成功 → 刷新当前用户余额(冻结金额变化)→ 关闭抽屉 → 跳到 /orders 持仓 tab
@@ -200,7 +219,7 @@ export function TradingPage() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div className="flex items-center gap-2">
-            <h1 className="text-lg font-medium">{tradingSymbol}</h1>
+            <h1 className="text-lg font-medium">{displayHeader}</h1>
             <span className={`text-base ${isPositive ? 'text-green-400' : 'text-red-400'}`}>{currentPrice}</span>
             <span className={`text-xs ${isPositive ? 'text-green-400' : 'text-red-400'}`}>{priceChange}</span>
           </div>
@@ -262,7 +281,7 @@ export function TradingPage() {
             {/* 顶部信息栏 — 交易对 + 价格 + 关闭 */}
             <div className="flex items-center justify-between mb-5">
               <div className="font-bold text-base">
-                {tradingSymbol}
+                {displayHeader}
                 <span className="ml-2 font-normal text-gray-300">{currentPrice}</span>
               </div>
               <button
@@ -400,6 +419,41 @@ export function TradingPage() {
         <div className="absolute bottom-5 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded shadow-lg z-50">
           {toastMessage}
         </div>
+      )}
+
+      {/* 禁单对话框 — 后端 ban_order 拦截时弹出 */}
+      {bannedDialog && (
+        <>
+          {/* 遮罩 */}
+          <div
+            className="fixed inset-0 bg-black/70 z-40"
+            onClick={() => setBannedDialog(false)}
+          />
+          {/* 弹窗 */}
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 mx-auto max-w-sm bg-[#1a1a1a] border border-red-500/40 rounded-2xl p-6 shadow-2xl shadow-black/60"
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-full bg-red-500/15 border border-red-500/40 flex items-center justify-center mb-4">
+                <ShieldOff className="w-7 h-7 text-red-400" />
+              </div>
+              <h3 className="text-base font-semibold text-white mb-2">
+                Order Banned
+              </h3>
+              <p className="text-sm text-gray-300 leading-relaxed mb-5">
+                You have been banned from placing orders.
+              </p>
+              <button
+                onClick={() => setBannedDialog(false)}
+                className="w-full bg-[#c4f82a] text-black py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect, useCallback } from 'react';
+import { getSupportLink } from '../config';
 
 function fmtAmt(n: number | string | undefined | null): string {
   return Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,6 +16,8 @@ export function ProfilePage() {
   const navigate = useNavigate();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [supportUrl, setSupportUrl] = useState("https://t.me/your_support");
+  useEffect(() => { getSupportLink().then(l => setSupportUrl(l.url)); }, []);
 
   // 进入页面从服务器拉一次最新的余额/信用分
   // 1) 首次挂载 / user.id 变化
@@ -210,8 +213,8 @@ export function ProfilePage() {
             <div className="flex items-center gap-3">
               <CreditCard className="w-5 h-5 text-amber-400" />
               <div className="text-left">
-                <div className="text-sm">My Wallets</div>
-                <div className="text-xs text-gray-500">Bank Cards / Crypto Wallets</div>
+                <div className="text-sm">{t('profile.myWallets')}</div>
+                <div className="text-xs text-gray-500">{t('profile.walletSubtitle')}</div>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />
@@ -290,7 +293,7 @@ export function ProfilePage() {
 
           {/* Customer Service — under Site Messages */}
           <a
-            href="https://google.com"
+            href={supportUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="w-full p-4 flex items-center justify-between"
@@ -298,7 +301,7 @@ export function ProfilePage() {
             <div className="flex items-center gap-3">
               <Headphones className="w-5 h-5 text-gray-400" />
               <div className="text-left">
-                <div className="text-sm">Click Here Contact Our Online Service</div>
+                <div className="text-sm">{t('profile.contactSupport')}</div>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />

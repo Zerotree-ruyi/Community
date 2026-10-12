@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 690 540" width="690" height="540">
+  <!-- 透明背景 — 适配任何容器背景 -->
+
+  <defs>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c4f82a"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 上方图标:六边形(跟 Coinbase 圆圈不同)内嵌 "C" 形 — 撑满上半部分 -->
+  <g transform="translate(345 175)">
+    <!-- 六边形外框 -->
+    <polygon
+      points="0,-140 121,-70 121,70 0,140 -121,70 -121,-70"
+      fill="none"
+      stroke="url(#brand)"
+      stroke-width="14"
+      stroke-linejoin="round"/>
+
+    <!-- 内部 C 形(开口向右) -->
+    <path d="M 45,-60 A 75,75 0 1,0 45,60"
+          fill="none"
+          stroke="url(#brand)"
+          stroke-width="20"
+          stroke-linecap="round"/>
+  </g>
+
+  <!-- 下方文字:Coinbase 撑满下半部分 -->
+  <text x="345" y="450"
+        text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="150"
+        font-weight="800"
+        fill="url(#brand)"
+        letter-spacing="-3">Coinbase</text>
+</svg>
