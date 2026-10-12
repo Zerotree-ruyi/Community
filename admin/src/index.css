@@ -12,12 +12,12 @@ html, body, #root {
   --sidebar-bg: #001529;
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 72px;
-  --font-xs:   12px;  /* 旧 11px — 徽章、footer、状态点 */
-  --font-sm:   13px;  /* 旧 12px — 按钮、表格、输入框、tab、menu */
-  --font-base: 14px;  /* 旧 13px — body、侧栏标签、卡片标题 */
-  --font-lg:   16px;  /* 旧 14px — 菜单图标、欢迎语 */
-  --font-xl:   18px;  /* 旧 16px — logo、页面标题 */
-  --font-2xl:  22px;  /* 旧 20px — KPI 数值、欢迎大标题 */
+  --font-xs:   13px;  /* 整体 +15% — 徽章、footer、状态点 */
+  --font-sm:   15px;  /* 整体 +15% — 按钮、表格、输入框、tab、menu */
+  --font-base: 16px;  /* 整体 +15% — body、侧栏标签、卡片标题 */
+  --font-lg:   18px;  /* 整体 +15% — 菜单图标、欢迎语 */
+  --font-xl:   21px;  /* 整体 +15% — logo、页面标题 */
+  --font-2xl:  25px;  /* 整体 +15% — KPI 数值、欢迎大标题 */
   --header-bg: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
   --header-h: 48px;
   --tab-h: 36px;
@@ -624,11 +624,12 @@ body {
 .act-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  padding: 2px 7px;
-  height: 22px;
-  border-radius: 3px;
-  font-size: var(--font-xs);
+  padding: 4px 10px;
+  height: 42px;
+  border-radius: 4px;
+  font-size: 14px;
   cursor: pointer;
   background: transparent;
   transition: all var(--transition);
@@ -665,7 +666,7 @@ body {
 .data-table th {
   background: #fafafa;
   border-bottom: 1px solid var(--border);
-  padding: 10px 8px;
+  padding: 6px 6px;
   text-align: left;
   font-weight: 600;
   color: #555;
@@ -674,11 +675,35 @@ body {
 }
 
 .data-table td {
-  padding: 9px 8px;
+  padding: 5px 6px;
   border-bottom: 1px solid #f0f0f0;
   color: var(--text);
   white-space: nowrap;
 }
+
+/* 操作列:根据窗口大小自动伸缩(clamp 响应式)
+   - 最小 200px(小窗口也够用)
+   - 优先 22vw(根据窗口拉宽)
+   - 最大 360px(大窗口不会太宽浪费) */
+.data-table td:last-child { min-width: clamp(200px, 22vw, 360px); }
+.data-table th:last-child { min-width: clamp(200px, 22vw, 360px); }
+
+/* Toggle 列(输赢/方向/禁单/禁提)固定最小宽度 — 避免 pill 被挤压 */
+.data-table td:nth-child(7),
+.data-table td:nth-child(8),
+.data-table td:nth-child(9),
+.data-table td:nth-child(10),
+.data-table th:nth-child(7),
+.data-table th:nth-child(8),
+.data-table th:nth-child(9),
+.data-table th:nth-child(10) {
+  min-width: 52px;
+  text-align: center;
+}
+
+/* 表格容器:超宽自动横向滚动,不挤压内容 */
+.table-card { overflow-x: auto; }
+.data-table { min-width: max-content; }
 
 .data-table tbody tr:hover { background: #f8fbff; }
 .data-table tbody tr:last-child td { border-bottom: none; }
@@ -933,9 +958,12 @@ body {
 }
 
 /* ── Action group ────────────────────────────────── */
+/* 操作列:自适应 3-5 列网格 — 窗口越宽,按钮排越多列越宽
+   - 最小 60px 一格 → 小窗口自动变 3 列
+   - 窗口大 → 自动变 4-5 列 */
 .action-group {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
   gap: 3px;
 }
 

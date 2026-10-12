@@ -170,13 +170,13 @@ export function RegisterPage() {
           >
             <input
               type="password"
+              autoComplete="new-password"
               inputMode="numeric"
               pattern="[0-9]{6}"
               maxLength={6}
               value={fundPassword}
               onChange={(e) => setFundPassword(e.target.value.replace(/\D/g, ''))}
               placeholder={t('auth.fundPasswordPlaceholder')}
-              autoComplete="new-password"
               disabled={loading}
               className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 disabled:opacity-60 tracking-widest"
             />
@@ -194,6 +194,7 @@ export function RegisterPage() {
           >
             <input
               type="password"
+              autoComplete="new-password"
               inputMode="numeric"
               pattern="[0-9]{6}"
               maxLength={6}

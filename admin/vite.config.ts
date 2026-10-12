@@ -31,19 +31,19 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',
-      port: parseInt(process.env.PORT || '8443'),
+      port: parseInt(process.env.PORT || '5174'),
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
+          target: 'http://47.236.95.137:3001',
           changeOrigin: true,
         },
       },
     },
     preview: {
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',
-      port: parseInt(process.env.PORT || '8443'),
+      port: parseInt(process.env.PORT || '5174'),
     },
   }
 })

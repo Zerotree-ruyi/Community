@@ -57,10 +57,10 @@ export function WithdrawHistoryPage() {
       {/* Filter Tabs */}
       <div className="px-4 py-3 flex gap-2 overflow-x-auto">
         {([
-          { k: 'all',     l: '全部' },
-          { k: '已同意',   l: '已同意' },
-          { k: '申请中',   l: '申请中' },
-          { k: '已拒绝',   l: '已拒绝' },
+          { k: 'all',     l: 'All' },
+          { k: '已同意',   l: 'Approved' },
+          { k: '申请中',   l: 'Pending' },
+          { k: '已拒绝',   l: 'Rejected' },
         ] as { k: Tab; l: string }[]).map((tab) => (
           <button
             key={tab.k}

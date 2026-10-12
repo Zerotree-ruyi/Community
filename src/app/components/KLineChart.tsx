@@ -74,7 +74,7 @@ export function KLineChart({ symbol }: Props) {
     s.src = SCRIPT_SRC;
     s.async = true;
     s.onload  = () => setReady(true);
-    s.onerror = () => setErrMsg('图表库加载失败,请检查网络');
+    s.onerror = () => setErrMsg('Failed to load chart library, please check your network');
     document.head.appendChild(s);
   }, []);
 
@@ -230,7 +230,7 @@ export function KLineChart({ symbol }: Props) {
         <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm bg-black/40 z-20">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-[#c4f82a] animate-pulse"></div>
-            图表库加载中…
+            Loading chart library...
           </div>
         </div>
       )}
@@ -238,7 +238,7 @@ export function KLineChart({ symbol }: Props) {
         <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-xs bg-black/30 z-20">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse"></div>
-            K线数据加载中…
+            Loading K-line data...
           </div>
         </div>
       )}

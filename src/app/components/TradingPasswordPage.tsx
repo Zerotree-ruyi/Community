@@ -49,7 +49,7 @@ export function TradingPasswordPage() {
     let cancelled = false;
     (async () => {
       if (!user?.id) {
-        setStatus({ kind: 'error', message: '请先登录' });
+        setStatus({ kind: 'error', message: 'Please log in first' });
         return;
       }
       try {

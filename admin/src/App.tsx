@@ -277,7 +277,7 @@ function HomePage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         { icon: "⬇",  label: "充值列表", page: "recharge-list",
           badge: stats?.todayRecharge ? fmtNum(stats.todayRecharge) : undefined,
           badgeKind: "success" },
-        { icon: "📊", label: "资金明细", page: "fund-details" },
+        { icon: "📊", label: "Fund Details", page: "fund-details" },
         { icon: "📈", label: "出入款报表", page: "report-inout" },
       ],
     },
@@ -980,38 +980,25 @@ function ToggleCell<T extends CellMode>({ value, options, onChange }: {
 }) {
   const cfg = options.find(o => o.value === value) ?? options[0];
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <span style={{
+    <button
+      onClick={() => {
+        const idx = options.findIndex(o => o.value === value);
+        const next = options[(idx + 1) % options.length];
+        onChange(next.value);
+      }}
+      title={`${cfg.label} (点击切换)`}
+      style={{
+        cursor: "pointer",
         display: "inline-flex", alignItems: "center",
-        padding: "2px 10px", borderRadius: 10,
+        padding: "2px 8px", borderRadius: 10,
         background: cfg.bg, color: cfg.color,
         border: `1px solid ${cfg.border}`,
-        fontSize: 14, fontWeight: 600,
+        fontSize: 13, fontWeight: 600,
         whiteSpace: "nowrap",
-      }}>{cfg.label}</span>
-      <span style={{ display: "inline-flex", gap: 2, fontSize: 12 }}>
-        {options.map(opt => {
-          const active = value === opt.value;
-          return (
-            <button
-              key={opt.value}
-              onClick={() => onChange(opt.value)}
-              title={opt.label}
-              style={{
-                cursor: "pointer",
-                padding: "2px 5px",
-                border: "none", borderRadius: 3,
-                background: active ? "#e6f4ff" : "transparent",
-                color: active ? "#1890ff" : "#888",
-                fontWeight: active ? 700 : 400,
-                fontSize: 14,
-                textDecoration: active ? "underline" : "none",
-              }}
-            >{opt.chip}</button>
-          );
-        })}
-      </span>
-    </div>
+        minWidth: 36,
+        justifyContent: "center",
+      }}
+    >{cfg.chip}</button>
   );
 }
 
@@ -1322,15 +1309,13 @@ function FundModal({
       setErr("金额必须为正数");
       return;
     }
-    if (!notes.trim()) {
-      setErr("请填写备注(资金明细需要)");
-      return;
-    }
+    // 备注改成选填 — 不再强制要求
+    const noteValue = notes.trim() || (isRecharge ? "后台入款" : "后台扣款");
     setSubmitting(true);
     try {
       const r = isRecharge
-        ? await api.rechargeMember(member.id, n, notes.trim(), "admin")
-        : await api.deductMember   (member.id, n, notes.trim(), "admin");
+        ? await api.rechargeMember(member.id, n, noteValue, "admin")
+        : await api.deductMember   (member.id, n, noteValue, "admin");
       onDone(
         `✔ ${isRecharge ? "入款" : "扣款"}成功 ${member.account} ${n.toFixed(2)} (余 ${Number(r.after).toFixed(2)})`,
         "ok",
@@ -3253,8 +3238,8 @@ function WithdrawListPage() {
                     <div className="action-group">
                       {w.status === "申请中" && (
                         <>
-                          <ActBtn label="✓ 同意" color="green" onClick={() => openApprove(w)} />
-                          <ActBtn label="✕ 拒绝" color="red" onClick={() => openReject(w)} />
+                          <ActBtn label="✓同意" color="green" onClick={() => openApprove(w)} />
+                          <ActBtn label="✕拒绝" color="red" onClick={() => openReject(w)} />
                         </>
                       )}
                       {w.status !== "申请中" && <span style={{ color: "#666", fontSize: 12 }}>已处理</span>}
@@ -3719,10 +3704,10 @@ const menuConfig: MenuGroup[] = [
   { key: "funds", label: "资金管理", icon: "💰", children: [
     { key: "recharge-list", label: "充值列表" },
     { key: "withdraw-list", label: "提现列表" },
-    { key: "fund-details",  label: "资金明细" },
+    { key: "fund-details",  label: "Fund Details" },
   ]},
-  { key: "orders", label: "订单管理", icon: "📋", page: "order-list" },
-  { key: "support-links", label: "客服链接", icon: "💬", page: "support-links" },
+  { key: "orders", label: "Order List", icon: "📋", page: "order-list" },
+  { key: "support-links", label: "Support Links", icon: "💬", page: "support-links" },
 ];
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -3846,7 +3831,7 @@ const pageLabels: Record<Page, string> = {
   home: "首页", members: "会员列表", "digital-wallet": "数字钱包",
   "bank-wallet": "银行钱包", messages: "站内消息", "report-inout": "出款入款",
   "recharge-list": "充值列表", "withdraw-list": "提现列表",
-  "fund-details": "资金明细", "order-list": "订单管理",
+  "fund-details": "Fund Details", "order-list": "订单管理",
   employees: "员工管理",
   profile: "个人中心",
 };

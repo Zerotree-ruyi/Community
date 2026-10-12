@@ -176,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           sessionStorage.setItem(
             'exchange_kicked_msg',
-            '您的账号已在其他设备登录或被管理员强制下线'
+            'Your account has been logged in on another device or forcibly logged out by an administrator'
           );
         } catch { /* ignore */ }
         // 跳转登录页
@@ -188,7 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (fresh.status === 0 && current.status !== 0) {
         persist(null);
         try {
-          sessionStorage.setItem('exchange_kicked_msg', '您的账号已被禁用');
+          sessionStorage.setItem('exchange_kicked_msg', 'Your account has been disabled');
         } catch { /* ignore */ }
         try { window.location.assign('/login'); } catch { /* ignore */ }
         return;

@@ -81,12 +81,12 @@ export function WithdrawPage() {
 
   const onSubmit = async () => {
     setErrMsg(null);
-    if (!user?.id) { setErrMsg('请先登录'); return; }
-    if (!selectedWallet) { setErrMsg('请选择钱包'); return; }
-    if (!amount || numAmount <= 0) { setErrMsg('请输入金额'); return; }
-    if (numAmount < MIN_AMOUNT) { setErrMsg(`最低提现 ${MIN_AMOUNT}`); return; }
-    if (numAmount > balance) { setErrMsg('余额不足'); return; }
-    if (!/^\d{6}$/.test(fundPwd)) { setErrMsg('请输入 6 位数字资金密码'); return; }
+    if (!user?.id) { setErrMsg(t('withdraw.pleaseLogin')); return; }
+    if (!selectedWallet) { setErrMsg(t('withdraw.pleaseSelectWallet')); return; }
+    if (!amount || numAmount <= 0) { setErrMsg(t('withdraw.pleaseEnterAmount')); return; }
+    if (numAmount < MIN_AMOUNT) { setErrMsg(t('withdraw.minAmount', { min: MIN_AMOUNT })); return; }
+    if (numAmount > balance) { setErrMsg(t('withdraw.insufficientBalance')); return; }
+    if (!/^\d{6}$/.test(fundPwd)) { setErrMsg(t('withdraw.invalidFundPwd')); return; }
 
     setSubmitting(true);
     try {
@@ -97,7 +97,7 @@ export function WithdrawPage() {
         amount: numAmount,
         fund_password: fundPwd,
       });
-      showToast('ok', '提现申请已提交,等待审核');
+      showToast('ok', t('withdraw.submitSuccess'));
       setTimeout(() => navigate('/withdraw/history'), 800);
     } catch (e) {
       // 账号被禁提 — 弹独立对话框(更醒目,提示这是管理员操作)
@@ -105,7 +105,7 @@ export function WithdrawPage() {
         setBannedDialog(true);
         setErrMsg(null);
       } else {
-        setErrMsg(e instanceof ApiError ? e.message : '提交失败');
+        setErrMsg(e instanceof ApiError ? e.message : t('withdraw.submitFailed'));
       }
     } finally {
       setSubmitting(false);
@@ -269,6 +269,7 @@ export function WithdrawPage() {
           <h3 className="text-sm text-gray-400 mb-3">Fund Password</h3>
           <input
             type="password"
+            autoComplete="new-password"
             inputMode="numeric"
             maxLength={6}
             value={fundPwd}
