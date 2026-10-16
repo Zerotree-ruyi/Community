@@ -22,11 +22,17 @@ interface Message {
 }
 
 function fmtTime(iso: string): string {
-  // 形如 2026-09-07 18:30:27
-  const d = new Date(iso);
+  // 后端可能给 "2026-09-07 18:30:27"(无时区) 或 ISO 字符串
+  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
   if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return d.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 export function MessagesPage() {

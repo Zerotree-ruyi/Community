@@ -85,11 +85,11 @@ function PriceWithChart({ symbol }: { symbol: string }) {
     const binanceSymbol = symbol.startsWith('BINANCE:') ? wsSymbol : null;
 
     if (binanceSymbol) {
-      // 获取真实K线数据 — 直接打公共 Binance(国内可能不通,但 klines API 优先级最高)
+      // 走后端的多镜像 Binance proxy(/api/binance/klines)— 国内能通,带自动 fallback
       const fetchKlines = async () => {
         try {
           const response = await fetch(
-            `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol.toUpperCase()}&interval=1h&limit=20`
+            `/api/binance/klines?symbol=${binanceSymbol.toUpperCase()}&interval=1h&limit=20`
           );
           if (!response.ok) throw new Error('klines fetch failed');
           const data = await response.json();
@@ -97,16 +97,21 @@ function PriceWithChart({ symbol }: { symbol: string }) {
           const closePrices = (data as any[]).map((k: any[]) => parseFloat(k[4]));
           setCandleData(closePrices);
         } catch (e) {
-          // 如果失败，用 WebSocket ticker 取 1 个价格点(至少画个方向)
+          // 失败兜底:用 24hr ticker 拉一个 range,合成 2 个端点,至少画个方向
           try {
-            const ws = new WebSocket(`wss://data-stream.binance.vision/ws/${binanceSymbol.toLowerCase()}@ticker`);
-            ws.onmessage = (event) => {
-              const tick = JSON.parse(event.data);
-              setCandleData([parseFloat(tick.c), parseFloat(tick.c) * 1.001]);
-            };
-            ws.onerror = () => setLoading(false);
+            const r = await fetch(`/api/binance/ticker/24hr?symbol=${binanceSymbol.toUpperCase()}`);
+            if (r.ok) {
+              const t = await r.json();
+              const last = parseFloat(t.lastPrice);
+              const high = parseFloat(t.highPrice);
+              const low  = parseFloat(t.lowPrice);
+              // 用 low/high + lastPrice 合成 5 个点,曲线有起伏
+              setCandleData([low, (low + last) / 2, last, (last + high) / 2, high]);
+            } else {
+              setCandleData([]);
+            }
           } catch {
-            setLoading(false);
+            setCandleData([]);
           }
         }
         setLoading(false);

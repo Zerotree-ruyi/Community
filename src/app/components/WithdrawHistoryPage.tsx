@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError, Withdrawal } from '../api';
+import { fmtDateTime } from '../utils/date';
 
 type Tab = 'all' | '已同意' | '申请中' | '已拒绝';
 
@@ -23,7 +24,7 @@ export function WithdrawHistoryPage() {
       const { data } = await api.myWithdrawals(user.id);
       setList(data);
     } catch (e) {
-      setErrMsg(e instanceof ApiError ? e.message : '加载失败');
+      setErrMsg(e instanceof ApiError ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
@@ -89,7 +90,7 @@ export function WithdrawHistoryPage() {
           <div className="text-center py-20">
             <div className="text-5xl mb-3">📭</div>
             <div className="text-gray-400 mb-1">No records</div>
-            <div className="text-xs text-gray-500">No withdrawal records{activeTab === 'all' ? '' : ` for ${activeTab}`} yet</div>
+            <div className="text-xs text-gray-500">No withdrawal records{activeTab === 'all' ? '' : ` for ${({已同意: 'Approved', 申请中: 'Pending', 已拒绝: 'Rejected'} as Record<string, string>)[activeTab] || activeTab}`} yet</div>
             <Link to="/withdraw" className="inline-block mt-4 rounded-md bg-[#c4f82a] px-4 py-1.5 text-xs font-semibold text-black">
               Go to Withdraw
             </Link>
@@ -133,6 +134,24 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
     已拒绝: 'text-red-400 bg-red-400/10',
     已退款: 'text-gray-400 bg-gray-400/10',
   };
+  // 中文状态 → 英文显示(后端 DB 仍存中文,只换显示层)
+  const statusLabel: Record<string, string> = {
+    申请中: 'Pending',
+    已同意: 'Approved',
+    已拒绝: 'Rejected',
+    已退款: 'Refunded',
+  };
+  // 后端 type 字段(中文"数字币"/"银行卡") → 英文
+  const typeLabel: Record<string, string> = {
+    数字币: 'Crypto',
+    银行卡: 'Bank Card',
+  };
+  // 管理员名称:统一展示为 "Finance Admin"(原中文"超级管理员"/员工名都映射过去)
+  const reviewerLabel = (s: string) => {
+    if (!s) return s;
+    if (s === '超级管理员' || s.toLowerCase() === 'admin') return 'Finance Admin';
+    return s; // 员工名(work_xxx)保留原样
+  };
   const amount = Number(w.amount);
   const fee = Number(w.fee);
   const actual = Number(w.actual_amount);
@@ -146,12 +165,20 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
             <span className="text-xl text-red-400 font-semibold">-{amount.toFixed(2)}</span>
             <span className="text-sm text-gray-400">USDT</span>
           </div>
-          <div className="text-xs text-gray-500">{w.apply_time}</div>
+          <div className="text-xs text-gray-500">{fmtDateTime(w.apply_time)}</div>
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-xs ${statusStyle[w.status] || 'text-gray-400'}`}>
-          {w.status}
+          {statusLabel[w.status] || w.status}
         </span>
       </div>
+
+      {/* 类型 */}
+      {w.type && (
+        <div className="mb-2 text-xs">
+          <span className="text-gray-500">Type: </span>
+          <span className="text-gray-200">{typeLabel[w.type] || w.type}</span>
+        </div>
+      )}
 
       {/* 钱包信息 */}
       <div className="bg-black/30 rounded-lg p-3 mb-3 text-xs space-y-1.5">
@@ -174,22 +201,23 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
 
       {/* 金额明细 */}
       <div className="text-xs space-y-1.5">
+        <Row label="Request" value={`${amount.toFixed(2)} USDT`} />
         <Row label="Fee" value={`${fee.toFixed(2)} USDT`} />
-        <Row label="Actual Received" value={`${actual.toFixed(2)} USDT`} valueClass="text-emerald-400" />
+        <Row label="Paid" value={`${actual.toFixed(2)} USDT`} valueClass="text-emerald-400" />
       </div>
 
       {/* 审核信息 */}
       {w.status === '已同意' && (
         <div className="mt-3 pt-3 border-t border-gray-700/50 text-xs space-y-1">
-          {w.reviewer && <Row label="Reviewer" value={w.reviewer} />}
-          {w.approve_time && <Row label="Review Time" value={w.approve_time} />}
+          {w.reviewer && <Row label="Reviewer" value={reviewerLabel(w.reviewer)} />}
+          {w.approve_time && <Row label="Review Time" value={fmtDateTime(w.approve_time)} />}
           {w.admin_note && <Row label="Note" value={w.admin_note} />}
         </div>
       )}
       {w.status === '已拒绝' && (
         <div className="mt-3 pt-3 border-t border-gray-700/50 text-xs space-y-1">
-          {w.reviewer && <Row label="Reviewer" value={w.reviewer} />}
-          {w.approve_time && <Row label="Review Time" value={w.approve_time} />}
+          {w.reviewer && <Row label="Reviewer" value={reviewerLabel(w.reviewer)} />}
+          {w.approve_time && <Row label="Review Time" value={fmtDateTime(w.approve_time)} />}
           {w.reject_reason && (
             <div>
               <div className="text-gray-400 mb-0.5">Rejection Reason</div>
@@ -202,6 +230,8 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
     </div>
   );
 }
+
+// fmtDateTime 已抽到 src/app/utils/date.ts 复用
 
 function Row({ label, value, mono = false, valueClass = '' }: { label: string; value: string; mono?: boolean; valueClass?: string; }) {
   return (

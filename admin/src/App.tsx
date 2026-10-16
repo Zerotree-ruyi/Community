@@ -110,8 +110,8 @@ function Badge({ label, color = "gray" }: { label: string; color?: string }) {
 }
 
 const fundTypeColor: Record<string, string> = {
-  "后台扣款": "orange", "下推盈利": "teal", "会员下单": "blue",
-  "后台充值": "green",  "会员提现": "red",
+  "Background Deduction": "orange", "Trade Profit": "teal", "Member Order": "blue",
+  "Background Recharge": "green",  "Member Withdrawal": "red",
 };
 const withdrawStatusColor: Record<string, string> = {
   "申请中": "orange", "已拒绝": "red", "已同意": "green", "已退款": "gray",
@@ -517,11 +517,15 @@ function MembersPage() {
     if (!editTarget) return;
     const id = editTarget.id;
 
+    // credit 字段是 "<score>|<vip_level>" 组合,后端只存一个字段
+    // 这里把表单里两个独立输入(信誉分 / VIP等级)合并回 "score|level"
+    const creditCombined = `${(data.credit || "100").trim()}|${(data.level || "1").trim()}`;
+
     // 1) 乐观更新本地状态(立刻可见)
     setList(prev => prev.map(m => m.id === id ? {
       ...m,
-      credit:   data.credit,
-      tag:      data.level,
+      credit:   creditCombined,
+      // 注意:不再把 level 写到 tag — tag 是分类标签(如"蓝随机"),不能被 VIP 等级覆盖
       nickname: data.nickname,
       phone:    data.phone,
       email:    data.email,
@@ -538,8 +542,8 @@ function MembersPage() {
         email:    data.email,
         gender:   data.gender,
         remark:   data.remark,
-        credit:   data.credit,
-        tag:      data.level,
+        credit:   creditCombined,
+        // tag 不在这里改
       });
       setToast({ text: `✔ 已保存 ${data.account} 的修改`, kind: "ok" });
     } catch (e: any) {
@@ -739,7 +743,7 @@ function MembersPage() {
                 <th>账号</th>
                 <th>状态</th>
                 <th>余额 | 冻结</th>
-                <th>信誉</th>
+                <th>信誉 | VIP</th>
                 <th>输赢</th>
                 <th>方向</th>
                 <th>禁单</th>
@@ -769,7 +773,7 @@ function MembersPage() {
                   <td className="link-cell">{m.account}</td>
                   <td><Toggle value={m.status === 1} onClick={() => toggleStatus(m)} /></td>
                   <td className="num-cell">{fmtNum(Number(m.balance))} | {fmtNum(Number(m.frozen))}</td>
-                  <td>{String(m.credit || "").split("|")[0]}</td>
+                  <td>{(() => { const p = String(m.credit || "").split("|"); return `${p[0] || 0} | V${p[1] || 0}`; })()}</td>
                   <td>
                     <ToggleCell
                       value={winMode[m.id] ?? "win"}
@@ -1299,7 +1303,7 @@ function FundModal({
 
   const isRecharge = mode === "recharge";
   const accent = isRecharge ? "#52c41a" : "#f5222d";
-  const title  = isRecharge ? "↑ 后台入款" : "↓ 后台扣款";
+  const title  = isRecharge ? "↑ Background Recharge" : "↓ Background Deduction";
   const submitLabel = isRecharge ? "确认入款" : "确认扣款";
 
   const submit = async () => {
@@ -1310,7 +1314,7 @@ function FundModal({
       return;
     }
     // 备注改成选填 — 不再强制要求
-    const noteValue = notes.trim() || (isRecharge ? "后台入款" : "后台扣款");
+    const noteValue = notes.trim() || (isRecharge ? "Background Recharge" : "Background Deduction");
     setSubmitting(true);
     try {
       const r = isRecharge
@@ -1411,7 +1415,7 @@ function FundModal({
 
           {/* 备注 — 选填;留空后端自动填 "System" */}
           <label style={{ display: "block", fontSize: 14, color: "#555", marginBottom: 6 }}>
-            备注(选填,留空默认 System)
+            Remark (Optional, defaults to System)
           </label>
           <textarea
             value={notes}
@@ -1627,7 +1631,7 @@ function FreezeModal({
           />
 
           <label style={{ display: "block", fontSize: 14, color: "#555", marginBottom: 6 }}>
-            备注(选填,留空默认 System)
+            Remark (Optional, defaults to System)
           </label>
           <textarea
             value={notes}
@@ -1927,15 +1931,19 @@ function EditMemberModal({ member, onClose, onSave }: {
   const [touched, setTouched] = useState(false);
 
   // 切换会员时重置表单
+  // credit 字段格式: "<score>|<vip_level>" 例 "100|1" — 拆成信誉分和 VIP 等级两个输入框
+  // 不再误把 VIP 等级写到 tag(那是"蓝随机"这种分类标签)
   useEffect(() => {
     if (!member) return;
+    const creditRaw = String(member.credit || "100|1");
+    const [scorePart, levelPart] = creditRaw.split("|");
     setData({
       account: member.account,
       nickname: (member as MemberEx).nickname || "",
       phone:    (member as MemberEx).phone    || "",
       email:    (member as MemberEx).email    || "",
-      credit:   String(member.credit || ""),
-      level:    String(member.tag || ""),
+      credit:   scorePart || "100",          // 信誉分(数字)
+      level:    levelPart || "1",            // VIP 等级(数字)
       gender: (member as MemberEx).gender || "男",
       remark: (member as MemberEx).remark || "",
     });
@@ -2133,17 +2141,19 @@ function EditMemberModal({ member, onClose, onSave }: {
                     style={inputStyle(!!errs.email)}
                   />
                 </Field>
-                <Field label="信誉">
+                <Field label="信誉分">
                   <input
                     value={data.credit}
-                    onChange={e => setField("credit", e.target.value)}
+                    onChange={e => setField("credit", e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="0-100,默认 100"
                     style={inputStyle(!!errs.credit)}
                   />
                 </Field>
-                <Field label="等级">
+                <Field label="VIP 等级">
                   <input
                     value={data.level}
-                    onChange={e => setField("level", e.target.value)}
+                    onChange={e => setField("level", e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="0-9,默认 1"
                     style={inputStyle(!!errs.level)}
                   />
                 </Field>
@@ -3268,7 +3278,7 @@ function WithdrawListPage() {
               会员: <strong>{approveFor.member_account || `#${approveFor.member_id}`}</strong> · 申请金额 {fmtNum(approveFor.amount)}
             </div>
             <WalletField label="实付金额 *" value={approved} onChange={setApproved} type="number" placeholder="可调整(默认等于申请金额)" />
-            <WalletField label="管理员备注" value={approveNote} onChange={setApproveNote} placeholder="选填" textarea />
+            <WalletField label="Admin Note" value={approveNote} onChange={setApproveNote} placeholder="Optional" textarea />
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn" onClick={() => setApproveFor(null)} disabled={acting}>取消</button>
               <button className="btn btn-primary" onClick={submitApprove} disabled={acting}>
@@ -3288,7 +3298,7 @@ function WithdrawListPage() {
               会员: <strong>{rejectFor.member_account || `#${rejectFor.member_id}`}</strong> · 金额 {fmtNum(rejectFor.amount)} 将退回余额
             </div>
             <WalletField label="拒绝原因 *" value={rejectReason} onChange={setRejectReason} placeholder="必填,用户可见" textarea />
-            <WalletField label="管理员备注" value={rejectNote} onChange={setRejectNote} placeholder="选填,内部可见" textarea />
+            <WalletField label="Admin Note" value={rejectNote} onChange={setRejectNote} placeholder="Optional, internal only" textarea />
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn" onClick={() => setRejectFor(null)} disabled={acting}>取消</button>
               <button className="btn btn-danger" onClick={submitReject} disabled={acting}>
@@ -4121,6 +4131,7 @@ function EmployeesPage() {
     | { mode: "resetCode"; newCode: string }
     | { mode: "delete"; id: number; username: string }
     | { mode: "edit"; employee: Employee }
+    | { mode: "changePassword"; id: number; username: string }
   >(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
@@ -4265,6 +4276,13 @@ function EmployeesPage() {
                         重置邀请码
                       </button>
                       <button
+                        onClick={() => setModal({ mode: "changePassword", id: emp.id, username: emp.username })}
+                        title="重置该员工的登录密码(无需旧密码)"
+                        style={actionBtnStyle("#13c2c2")}
+                      >
+                        改密
+                      </button>
+                      <button
                         onClick={() => emp.status === 1 ? toggleStatus(emp.id, false) : toggleStatus(emp.id, true)}
                         style={actionBtnStyle(emp.status === 1 ? "#fa8c16" : "#52c41a")}
                       >
@@ -4337,6 +4355,17 @@ function EmployeesPage() {
           employee={modal.employee}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); reload(); }}
+          onError={(m) => flash("err", m)}
+        />
+      )}
+
+      {/* 改密 */}
+      {modal?.mode === "changePassword" && (
+        <ChangePasswordModal
+          id={modal.id}
+          username={modal.username}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); flash("ok", "密码已重置"); }}
           onError={(m) => flash("err", m)}
         />
       )}
@@ -4440,6 +4469,118 @@ function CreateEmployeeModal({ onClose, onCreated, onError }: {
           >取消</button>
           <button className="btn-primary" onClick={submit} disabled={busy}>
             {busy ? "创建中…" : "创建"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 超级管理员给员工重置登录密码(super 专属,无需旧密码)
+function ChangePasswordModal({ id, username, onClose, onSaved, onError }: {
+  id: number; username: string;
+  onClose: () => void; onSaved: () => void; onError: (m: string) => void;
+}) {
+  const [newPwd, setNewPwd]   = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy]       = useState(false);
+  const [err, setErr]         = useState<string | null>(null);
+
+  const lengthOk = newPwd.length >= 6 && newPwd.length <= 32;
+  const matchOk  = !confirm || newPwd === confirm;
+  const canSubmit = lengthOk && newPwd === confirm && !busy;
+
+  const submit = async () => {
+    setErr(null);
+    if (!lengthOk)              return setErr("新密码需 6-32 位");
+    if (newPwd !== confirm)     return setErr("两次密码不一致");
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/admin/employees/${id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword: newPwd }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return onError(d.message || "重置失败");
+      onSaved();
+    } catch (e: any) {
+      onError(e?.message || "网络错误");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={modalBackdropStyle} onClick={onClose}>
+      <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 18, color: "#222" }}>重置密码</h3>
+        <p style={{ margin: "0 0 16px", fontSize: 13, color: "#888" }}>
+          员工账号: <b style={{ color: "#1677ff" }}>{username}</b>
+        </p>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 13, color: "#333", marginBottom: 4 }}>
+            新密码 <span style={{ color: "#ff4d4f" }}>*</span>
+          </label>
+          <input
+            type="password"
+            value={newPwd}
+            onChange={(e) => { setNewPwd(e.target.value); setErr(null); }}
+            placeholder="6-32 位字符"
+            style={{
+              width: "100%", padding: 8, border: "1px solid #ddd",
+              borderRadius: 4, fontSize: 13, boxSizing: "border-box",
+            }}
+          />
+          {newPwd && !lengthOk && (
+            <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>密码长度需 6-32 位</div>
+          )}
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 13, color: "#333", marginBottom: 4 }}>
+            确认新密码 <span style={{ color: "#ff4d4f" }}>*</span>
+          </label>
+          <input
+            type="password"
+            value={confirm}
+            onChange={(e) => { setConfirm(e.target.value); setErr(null); }}
+            placeholder="再输入一次"
+            style={{
+              width: "100%", padding: 8, border: "1px solid #ddd",
+              borderRadius: 4, fontSize: 13, boxSizing: "border-box",
+            }}
+          />
+          {confirm && !matchOk && (
+            <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>两次密码不一致</div>
+          )}
+        </div>
+
+        {err && (
+          <div style={{
+            color: "#ff4d4f", fontSize: 13, margin: "0 0 12px",
+            padding: "6px 10px", background: "#fff1f0", border: "1px solid #ffa39e", borderRadius: 4,
+          }}>{err}</div>
+        )}
+
+        <div style={{
+          background: "#fffbe6", border: "1px solid #ffe58f", borderRadius: 4,
+          padding: "8px 12px", fontSize: 12, color: "#ad6800", marginBottom: 12,
+        }}>
+          ⚠ 重置后该员工需要用新密码登录。对方当前会话会被踢下线。
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: "7px 16px", fontSize: 14, cursor: "pointer",
+              background: "#fff", border: "1px solid #d9d9d9", borderRadius: 4, color: "#555",
+            }}
+          >取消</button>
+          <button className="btn-primary" onClick={submit} disabled={!canSubmit}>
+            {busy ? "重置中…" : "确认重置"}
           </button>
         </div>
       </div>
@@ -4643,7 +4784,7 @@ function EditEmployeeModal({ employee, onClose, onSaved, onError }: {
             <input
               value={newNote}
               onChange={(e) => setNewNote(e.target.value)}
-              placeholder="备注(选填)"
+              placeholder="Remark (Optional)"
               maxLength={128}
               style={{
                 flex: 1, padding: 7, border: "1px solid #ddd",

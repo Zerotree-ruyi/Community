@@ -81,6 +81,12 @@ export function ProfilePage() {
     const c = String(user?.credit ?? '0').split('|')[0];
     return c || '0';
   })();
+
+  // VIP 等级从 credit 字段后半段取(后端存 "score|vip_level")
+  const vipLevel = (() => {
+    const parts = String(user?.credit ?? '0|1').split('|');
+    return parts[1] || '1';
+  })();
   
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0f1419] to-[#1a1f2e] text-white pb-20">
@@ -95,7 +101,7 @@ export function ProfilePage() {
                 </div>
               </div>
               <div className="absolute -bottom-0 left-1/2 -translate-x-1/2 bg-gray-800 text-[#c4f82a] text-[10px] px-2 py-0.5 rounded-full border border-[#c4f82a] whitespace-nowrap">
-                {t('profile.vip')}&nbsp;0
+                {t('profile.vip')}&nbsp;{vipLevel}
               </div>
             </div>
             <div>

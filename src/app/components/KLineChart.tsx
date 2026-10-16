@@ -20,7 +20,7 @@ const REST_HOSTS = [
   'https://api1.binance.com',
   'https://api.binance.us',
 ];
-const buildKlinesUrl = (host: string, symbol: string, interval: string, limit = 200) => {
+const buildKlinesUrl = (host: string, symbol: string, interval: string, limit = 40) => {
   // 本后端代理(走 A 台反代) — 相对路径,加 /klines 子路径
   if (host.startsWith('/')) {
     return `${host}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -85,12 +85,18 @@ export function KLineChart({ symbol }: Props) {
     const lwc = window.LightweightCharts;
     const chart = lwc.createChart(containerRef.current, {
       width:  containerRef.current.clientWidth,
-      height: 288,
+      // 高度填满容器(以前写死 288,容器 420 时下面 132px 是空的)
+      height: containerRef.current.clientHeight,
       layout: { background: { color: '#0a0e13' }, textColor: '#d1d4dc' },
       grid:   { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
       timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#374151' },
       rightPriceScale: { borderColor: '#374151' },
       crosshair: { mode: lwc.CrosshairMode?.Normal ?? 0 },
+      // 强制英文日期(否则跟随浏览器 locale,中文浏览器会显示 "10月15日" 之类)
+      localization: {
+        locale: 'en-US',
+        dateFormat: 'MMM dd, yyyy',
+      },
     });
     // 水印 (像 TradingView 的左下角标记)
     const watermark = document.createElement('div');
@@ -111,10 +117,13 @@ export function KLineChart({ symbol }: Props) {
     chartRef.current  = chart;
     seriesRef.current = series;
 
-    // 自适应宽度
+    // 自适应宽度和高度 — 跟着外层容器变
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+        chartRef.current.applyOptions({
+          width:  containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        });
       }
     });
     ro.observe(containerRef.current);

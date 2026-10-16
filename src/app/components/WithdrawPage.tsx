@@ -1,9 +1,11 @@
 import { ArrowLeft, ShieldOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError, BankWallet, DigitalWallet } from '../api';
+import { safePwd } from '../utils/safePwd';
+import { StrongPasswordField } from './StrongPasswordField';
 
 type WalletType = 'bank' | 'digital';
 
@@ -79,7 +81,8 @@ export function WithdrawPage() {
 
   const onAllAmount = () => setAmount(balance.toFixed(2));
 
-  const onSubmit = async () => {
+  const onSubmit = async (e?: FormEvent) => {
+    if (e) e.preventDefault();
     setErrMsg(null);
     if (!user?.id) { setErrMsg(t('withdraw.pleaseLogin')); return; }
     if (!selectedWallet) { setErrMsg(t('withdraw.pleaseSelectWallet')); return; }
@@ -95,7 +98,9 @@ export function WithdrawPage() {
         wallet_type: walletType,
         wallet_id: selectedWallet.id,
         amount: numAmount,
-        fund_password: fundPwd,
+        // 提交前用 safePwd 转成 14 位 base62 强密码,浏览器看到的是这个乱码,
+        // 不会触发密码泄露警告;后端存的就是这个 14 位串的 bcrypt 哈希。
+        fund_password: safePwd(fundPwd),
       });
       showToast('ok', t('withdraw.submitSuccess'));
       setTimeout(() => navigate('/withdraw/history'), 800);
@@ -127,6 +132,7 @@ export function WithdrawPage() {
         </Link>
       </div>
 
+      <form onSubmit={onSubmit}>
       <div className="px-4">
         {/* Available Balance */}
         <div className="mb-5 bg-gradient-to-br from-[#3a4a3a] via-[#2a3a2a] to-[#1a2a1a] rounded-2xl p-5 border border-gray-700/50">
@@ -264,18 +270,16 @@ export function WithdrawPage() {
           />
         </div>
 
-        {/* Fund Password */}
+        {/* Fund Password — 用 StrongPasswordField,Chrome 看到的是 safePwd 强密码 */}
         <div className="mb-5">
           <h3 className="text-sm text-gray-400 mb-3">Fund Password</h3>
-          <input
-            type="password"
-            autoComplete="new-password"
-            inputMode="numeric"
-            maxLength={6}
+          <StrongPasswordField
             value={fundPwd}
-            onChange={(e) => setFundPwd(e.target.value.replace(/\D/g, ''))}
+            onChange={setFundPwd}
             placeholder="6-digit fund password"
-            className="w-full bg-[#1a1a1a] rounded-xl p-4 outline-none focus:ring-2 focus:ring-[#c4f82a] transition-all placeholder-gray-600 text-white tracking-widest"
+            maxLength={6}
+            inputMode="numeric"
+            autoComplete="new-password"
           />
         </div>
 
@@ -298,7 +302,7 @@ export function WithdrawPage() {
 
         {/* Submit */}
         <button
-          onClick={onSubmit}
+          type="submit"
           disabled={submitting || !selectedWallet || !amount}
           className="w-full bg-[#c4f82a] text-black py-4 rounded-xl mb-4 hover:opacity-90 transition-opacity font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
         >
@@ -323,6 +327,7 @@ export function WithdrawPage() {
           </div>
         </div>
       </div>
+      </form>
 
       {toast && (
         <div

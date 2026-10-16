@@ -29,6 +29,12 @@ export function LoginPasswordPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  // 返回按钮 — 默认跳 /security(直接打开此页时 navigate(-1) 不动)
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/security');
+  };
+
   const [oldPwd, setOldPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
@@ -107,7 +113,7 @@ export function LoginPasswordPage() {
     <div className="min-h-screen bg-black text-white pb-20">
       {/* Header */}
       <div className="flex items-center justify-center p-4 relative border-b border-gray-800">
-        <Link to="/security" className="absolute left-4">
+        <Link to="/security" className="absolute left-4" onClick={(e) => { e.preventDefault(); handleBack(); }}>
           <ArrowLeft className="w-6 h-6 text-white" />
         </Link>
         <h1 className="text-lg">{t('loginPassword.title')}</h1>

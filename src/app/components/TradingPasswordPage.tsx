@@ -14,11 +14,13 @@
  *  5) POST /api/auth/change-fund-password
  */
 
-import { ArrowLeft, Eye, EyeOff, Lock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Lock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { safePwd } from '../utils/safePwd';
+import { StrongPasswordField } from './StrongPasswordField';
 
 type Status =
   | { kind: 'idle' }
@@ -32,15 +34,17 @@ export function TradingPasswordPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  // 返回按钮 — 默认跳 /security(直接打开此页时 navigate(-1) 不动)
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/security');
+  };
+
   // 当前资金密码是否已设置 — 决定是否显示"旧密码"输入框
   const [hasFundPassword, setHasFundPassword] = useState<boolean | null>(null);
   const [oldPwd, setOldPwd]   = useState('');
   const [newPwd, setNewPwd]   = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
-
-  const [showOld, setShowOld]         = useState(false);
-  const [showNew, setShowNew]         = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
 
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
 
@@ -106,8 +110,8 @@ export function TradingPasswordPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           member_id: user.id,
-          old_fund_password: hasFundPassword ? oldPwd : undefined,
-          new_fund_password: newPwd,
+          old_fund_password: hasFundPassword ? safePwd(oldPwd) : undefined,
+          new_fund_password: safePwd(newPwd),
         }),
       });
       const data = await r.json().catch(() => ({} as any));
@@ -151,7 +155,7 @@ export function TradingPasswordPage() {
     <div className="min-h-screen bg-black text-white pb-20">
       {/* Header */}
       <div className="flex items-center justify-center p-4 relative border-b border-gray-800">
-        <Link to="/security" className="absolute left-4">
+        <Link to="/security" className="absolute left-4" onClick={(e) => { e.preventDefault(); handleBack(); }}>
           <ArrowLeft className="w-6 h-6 text-white" />
         </Link>
         <h1 className="text-lg">{pageTitle}</h1>
@@ -174,26 +178,15 @@ export function TradingPasswordPage() {
           {hasFundPassword && (
             <div>
               <label className="text-sm text-gray-400 mb-2 block">Current Fund Password</label>
-              <div className="relative">
-                <input
-                  type={showOld ? 'text' : 'password'}
-                  value={oldPwd}
-                  onChange={(e) => { setOldPwd(e.target.value); setStatus({ kind: 'idle' }); }}
-                  placeholder="Enter your current 6-digit fund password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  autoComplete="current-password"
-                  className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-3 pr-12 text-white placeholder-gray-500 focus:outline-none focus:border-[#c4f82a] tracking-widest"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowOld(!showOld)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
-                  tabIndex={-1}
-                >
-                  {showOld ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
+              <StrongPasswordField
+                value={oldPwd}
+                onChange={(v) => { setOldPwd(v); setStatus({ kind: 'idle' }); }}
+                placeholder="Enter your current 6-digit fund password"
+                maxLength={6}
+                inputMode="numeric"
+                autoComplete="current-password"
+                className="!rounded-xl !border-gray-700 focus-within:!border-[#c4f82a] !px-4 !py-3"
+              />
             </div>
           )}
 
@@ -202,52 +195,30 @@ export function TradingPasswordPage() {
             <label className="text-sm text-gray-400 mb-2 block">
               {hasFundPassword ? 'New Fund Password' : 'Set Fund Password'}
             </label>
-            <div className="relative">
-              <input
-                type={showNew ? 'text' : 'password'}
-                value={newPwd}
-                onChange={(e) => { setNewPwd(e.target.value.replace(/\D/g, '').slice(0, 6)); setStatus({ kind: 'idle' }); }}
-                placeholder="Enter a 6-digit fund password"
-                inputMode="numeric"
-                maxLength={6}
-                autoComplete="new-password"
-                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-3 pr-12 text-white placeholder-gray-500 focus:outline-none focus:border-[#c4f82a] tracking-widest"
-              />
-              <button
-                type="button"
-                onClick={() => setShowNew(!showNew)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
-                tabIndex={-1}
-              >
-                {showNew ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
+            <StrongPasswordField
+              value={newPwd}
+              onChange={(v) => { setNewPwd(v); setStatus({ kind: 'idle' }); }}
+              placeholder="Enter a 6-digit fund password"
+              maxLength={6}
+              inputMode="numeric"
+              autoComplete="new-password"
+              className="!rounded-xl !border-gray-700 focus-within:!border-[#c4f82a] !px-4 !py-3"
+            />
             <div className="text-xs text-gray-500 mt-2">Fund password must be exactly 6 digits</div>
           </div>
 
           {/* Confirm Password */}
           <div>
             <label className="text-sm text-gray-400 mb-2 block">Confirm Fund Password</label>
-            <div className="relative">
-              <input
-                type={showConfirm ? 'text' : 'password'}
-                value={confirmPwd}
-                onChange={(e) => { setConfirmPwd(e.target.value.replace(/\D/g, '').slice(0, 6)); setStatus({ kind: 'idle' }); }}
-                placeholder="Re-enter the fund password"
-                inputMode="numeric"
-                maxLength={6}
-                autoComplete="new-password"
-                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-3 pr-12 text-white placeholder-gray-500 focus:outline-none focus:border-[#c4f82a] tracking-widest"
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirm(!showConfirm)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
-                tabIndex={-1}
-              >
-                {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
+            <StrongPasswordField
+              value={confirmPwd}
+              onChange={(v) => { setConfirmPwd(v); setStatus({ kind: 'idle' }); }}
+              placeholder="Re-enter the fund password"
+              maxLength={6}
+              inputMode="numeric"
+              autoComplete="new-password"
+              className="!rounded-xl !border-gray-700 focus-within:!border-[#c4f82a] !px-4 !py-3"
+            />
           </div>
 
           {/* 实时校验提示 */}

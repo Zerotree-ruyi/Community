@@ -1,8 +1,8 @@
-import { ArrowLeft, Star, Menu, X, ChevronUp, ChevronDown, AlertCircle, ShieldOff } from 'lucide-react';
+import { ArrowLeft, ArrowUp, ArrowDown, Star, Menu, X, ChevronUp, ChevronDown, AlertCircle, ShieldOff } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
 import { ProductListSidebar } from './ProductListSidebar';
-import { TradingViewWidget } from './TradingViewWidget';
+import { KLineChart } from './KLineChart';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { MARKET_COINS, MarketCoin } from '../data/marketConfig';
@@ -246,24 +246,28 @@ export function TradingPage() {
         linkPrefix="/trading"
       />
 
-      {/* Chart — 高度加大给 MACD 副图留位置 */}
-      <div className="h-[420px] bg-[#0a0e13] relative border-b border-gray-800 flex-shrink-0">
-        <TradingViewWidget symbol={`BINANCE:${tradingSymbol}.P`} height={420} hide_top_toolbar={false} />
+      {/* Chart — 用本地 KLineChart(轻量级,无需外网),不走被墙的 TradingView iframe */}
+      {/*   - h-[380px]: 固定高度,既保证 K 线足够大,又给底部按钮区留出空间,
+            按钮在 chart 下方紧贴,屏幕最底有适度留白(不再被挤出去) */}
+      <div className="h-[380px] bg-[#0a0e13] relative border-b border-gray-800 flex-shrink-0">
+        <KLineChart symbol={tradingSymbol} />
       </div>
 
-      {/* 两个按钮 — 紧贴图表下方,点击触发底部抽屉 */}
+      {/* 两个按钮 — 紧贴图表下方,点击触发底部抽屉(带 ↑/↓ 图标和按钮对齐) */}
       <div className="grid grid-cols-2 gap-3 p-4 bg-[#1a1a1a]">
         <button
           onClick={() => openOrderSheet('buy')}
-          className="py-4 rounded-xl font-semibold text-base bg-gradient-to-r from-[#16a34a] to-[#15803d] text-white active:scale-[0.98] transition-all"
+          className="py-4 rounded-xl font-semibold text-base bg-gradient-to-r from-[#16a34a] to-[#15803d] text-white active:scale-[0.98] transition-all flex items-center justify-center gap-2"
         >
-          {t('trading.openLong')}
+          <ArrowUp className="w-5 h-5" strokeWidth={3} />
+          <span>Buy up</span>
         </button>
         <button
           onClick={() => openOrderSheet('sell')}
-          className="py-4 rounded-xl font-semibold text-base bg-gradient-to-r from-[#dc2626] to-[#b91c1c] text-white active:scale-[0.98] transition-all"
+          className="py-4 rounded-xl font-semibold text-base bg-gradient-to-r from-[#dc2626] to-[#b91c1c] text-white active:scale-[0.98] transition-all flex items-center justify-center gap-2"
         >
-          {t('trading.openShort')}
+          <ArrowDown className="w-5 h-5" strokeWidth={3} />
+          <span>Buy Down</span>
         </button>
       </div>
 
@@ -367,7 +371,7 @@ export function TradingPage() {
             {/* 预期收益率 + 结算金额 */}
             <div className="mb-3 text-xs text-gray-400 flex items-center justify-between">
               <span>
-                {orderDirection === 'buy' ? t('trading.openLong') : t('trading.openShort')}
+                {orderDirection === 'buy' ? 'Buy up' : 'Buy Down'}
                 {' · '}
                 {selectedPeriod} · {currentReturn}
               </span>

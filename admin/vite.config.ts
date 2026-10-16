@@ -34,9 +34,15 @@ export default defineConfig(({ mode }) => {
       port: parseInt(process.env.PORT || '5174'),
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
+      headers: {
+        'X-Frame-Options': 'DENY',
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+      },
       proxy: {
         '/api': {
-          target: 'http://47.236.95.137:3001',
+          target: 'http://localhost:3001',
           changeOrigin: true,
         },
       },

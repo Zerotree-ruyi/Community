@@ -25,10 +25,17 @@ interface Order {
 
 function fmtTime(s: string | null | undefined): string {
   if (!s) return '--';
-  const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
+  // 后端可能给 "2026-10-16 16:21:34"(无时区) 或 ISO 字符串
+  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
   if (Number.isNaN(d.getTime())) return s;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return d.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 function fmtNum(n: number | null | undefined, digits = 4): string {

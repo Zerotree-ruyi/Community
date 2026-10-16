@@ -45,13 +45,20 @@ interface OrderCardProps {
 
 // ─── 工具函数 ──────────────────────────────────────────────────────────────
 
-/** 时间格式:2026-09-10 16:21:34 */
+/** 时间格式:Oct 16, 2026, 19:35 (en-US 24h) */
 function fmtTime(s: string | null | undefined): string {
   if (!s) return '--';
-  const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
+  // 后端可能给 "2026-10-16 16:21:34"(无时区) 或 ISO 字符串,统一转 Date
+  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
   if (Number.isNaN(d.getTime())) return s;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return d.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 /** 金额格式:1000.00 */

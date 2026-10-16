@@ -9,6 +9,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { safePwd } from '../utils/safePwd';
 
 export interface User {
   id: number;
@@ -135,8 +136,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await postJSON<{ user: User }>('/auth/register', {
         account: payload.account,
         password: payload.password,
-        fundPassword: payload.fundPassword,
-        fundPasswordConfirm: payload.fundPasswordConfirm,
+        // 提交前用 safePwd 转 14 位 base62 强密码,屏蔽 Chrome 密码泄露警告
+        fundPassword: safePwd(payload.fundPassword),
+        fundPasswordConfirm: safePwd(payload.fundPasswordConfirm),
         inviteCode: payload.inviteCode,
       });
       persist(data.user);

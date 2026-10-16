@@ -322,9 +322,12 @@ function WalletEditModal({
     setBusy(true);
     try {
       if (kind === "bank") {
-        if (!bankName.trim() || !holder.trim() || !cardNo.trim() || !ifsc.trim() ||
-            !branch.trim() || !idNumber.trim() || !bankNotes.trim()) {
-          throw new Error("All fields are required");
+        // 只校验后端真正要求的 3 个字段(与 server.ts `missing_required` 对齐)
+        //   - bank_name / card_no / holder 是后端 NOT NULL 字段
+        //   - id_number / branch / ifsc / notes 在 schema 都是 DEFAULT '' 或可空,
+        //     旧数据可能为空,这里也允许空,避免老卡编辑时误报"无法更改"
+        if (!bankName.trim() || !holder.trim() || !cardNo.trim()) {
+          throw new Error("Bank name, card number, and cardholder are required");
         }
         const payload: BankDraft = {
           bank_name: bankName.trim(),
@@ -382,13 +385,13 @@ function WalletEditModal({
         <form onSubmit={onSubmit} className="space-y-3">
           {kind === "bank" ? (
             <>
-              <Field label="Bank Name *"        value={bankName}  onChange={setBankName}  placeholder="e.g. ICBC" />
-              <Field label="Holder's Name *"    value={holder}    onChange={setHolder}    placeholder="Full name on card" />
-              <Field label="A/C No *"           value={cardNo}    onChange={setCardNo}    placeholder="Bank card number" noPaste />
-              <Field label="IFSC Code *"        value={ifsc}      onChange={setIfsc}      placeholder="e.g. ICBKCNBJ" noPaste />
-              <Field label="Bank Branch *"      value={branch}    onChange={setBranch}    placeholder="Branch name" />
-              <Field label="ID Number *"        value={idNumber}  onChange={setIdNumber}  placeholder="National ID / Tax ID" />
-              <Field label="Remark *"           value={bankNotes} onChange={setBankNotes} placeholder="Notes (required)" textarea />
+              <Field label="Bank Name *"        value={bankName}  onChange={setBankName}  />
+              <Field label="Holder's Name *"    value={holder}    onChange={setHolder}    />
+              <Field label="A/C No *"           value={cardNo}    onChange={setCardNo}    noPaste />
+              <Field label="IFSC Code"          value={ifsc}      onChange={setIfsc}      noPaste />
+              <Field label="Bank Branch"        value={branch}    onChange={setBranch}    />
+              <Field label="ID Number"          value={idNumber}  onChange={setIdNumber}  />
+              <Field label="Remark"             value={bankNotes} onChange={setBankNotes} textarea />
               <Checkbox label="Set as default"   checked={bankDefault} onChange={setBankDefault} />
             </>
           ) : (
@@ -396,10 +399,10 @@ function WalletEditModal({
               <div className="grid grid-cols-2 gap-3">
                 <SelectField label="Coin *" value={coinType} onChange={(v) => setCoinType(v as any)}
                   options={[{ v: "USDT", l: "USDT" }, { v: "BTC", l: "BTC" }, { v: "ETH", l: "ETH" }]} />
-                <Field label="Network *" value={network} onChange={setNetwork} placeholder="TRC20 / ERC20 / BTC" />
+                <Field label="Network" value={network} onChange={setNetwork}  />
               </div>
-              <Field label="Wallet Address *" value={address} onChange={setAddress} placeholder="On-chain wallet address" />
-              <Field label="Remark" value={digNotes} onChange={setDigNotes} placeholder="(optional)" textarea />
+              <Field label="Wallet Address *" value={address} onChange={setAddress}  />
+              <Field label="Remark" value={digNotes} onChange={setDigNotes} textarea />
               <Checkbox label="Set as default" checked={digDefault} onChange={setDigDefault} />
             </>
           )}
@@ -427,14 +430,16 @@ function Field({
       e.preventDefault();
     }
   };
+  // 后端可能返回 null/undefined(老数据),input 必须是字符串才不会警告
+  const safeValue = value ?? '';
   return (
     <div>
       <label className="mb-1 block text-xs text-white/60">{label}</label>
       {textarea ? (
-        <textarea value={value} onChange={(e) => onChange(e.target.value)} onPaste={blockPaste} placeholder={placeholder} maxLength={maxLength}
+        <textarea value={safeValue} onChange={(e) => onChange(e.target.value)} onPaste={blockPaste} placeholder={placeholder} maxLength={maxLength}
           rows={2} className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-amber-500 focus:outline-none" />
       ) : (
-        <input value={value} onChange={(e) => onChange(e.target.value)} onPaste={blockPaste} placeholder={placeholder} maxLength={maxLength}
+        <input value={safeValue} onChange={(e) => onChange(e.target.value)} onPaste={blockPaste} placeholder={placeholder} maxLength={maxLength}
           className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-amber-500 focus:outline-none" />
       )}
     </div>

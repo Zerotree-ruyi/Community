@@ -51,34 +51,61 @@ app.use((req, _res, next) => {
 // ─── 币安 REST 代理(解决前端 CORS) ──────────────────────────────────────────
 // 前端浏览器不能直连 https://api.binance.com,改用同源 /api/binance/*
 // 由本后端代为转发,缓存 5 秒减轻上游负担
+// 国内网络下 api.binance.com 常被墙 — 按以下顺序回退镜像
 import https from "node:https";
 
-const BINANCE_API = "api.binance.com";
+const BINANCE_HOSTS = [
+  "data-api.binance.vision",   // 镜像,通常可达
+  "api.binance.com",           // 主站,国内常被墙
+  "api1.binance.com",          // 备用
+  "api.binance.us",            // 美国站
+];
 
 function proxyBinanceGet(upstreamPath: string, req: any, res: any) {
   const qs = new URLSearchParams(req.query as Record<string, string>).toString();
   const fullPath = `${upstreamPath}${qs ? "?" + qs : ""}`;
 
-  const upstream = https.request(
-    {
-      hostname: BINANCE_API,
-      path: fullPath,
-      method: "GET",
-      headers: { "User-Agent": "exchange-proxy/1.0" },
-    },
-    (upRes) => {
-      res.status(upRes.statusCode || 502);
-      const ct = upRes.headers["content-type"];
-      if (ct) res.setHeader("Content-Type", ct);
-      res.setHeader("Cache-Control", "public, max-age=5");
-      upRes.pipe(res);
+  // 依次尝试镜像,任一成功即停
+  const tryNext = (idx: number) => {
+    if (idx >= BINANCE_HOSTS.length) {
+      console.error("[binance proxy] all mirrors unreachable");
+      if (!res.headersSent) res.status(502).json({ error: "binance_upstream_error", detail: "All mirrors unreachable" });
+      return;
     }
-  );
-  upstream.on("error", (e) => {
-    console.error("[binance proxy] error:", e.message);
-    res.status(502).json({ error: "binance_upstream_error", detail: e.message });
-  });
-  upstream.end();
+    const hostname = BINANCE_HOSTS[idx];
+    const upstream = https.request(
+      {
+        hostname,
+        path: fullPath,
+        method: "GET",
+        headers: { "User-Agent": "exchange-proxy/1.0" },
+        timeout: 8000,
+      },
+      (upRes) => {
+        // 非 200/2xx 视为失败,试下一个
+        if (!upRes.statusCode || upRes.statusCode >= 400) {
+          upRes.resume();
+          upRes.on("end", () => tryNext(idx + 1));
+          return;
+        }
+        res.status(upRes.statusCode);
+        const ct = upRes.headers["content-type"];
+        if (ct) res.setHeader("Content-Type", ct);
+        res.setHeader("Cache-Control", "public, max-age=5");
+        upRes.pipe(res);
+      }
+    );
+    upstream.on("error", (e) => {
+      console.error("[binance proxy] error:", hostname, e.message);
+      tryNext(idx + 1);
+    });
+    upstream.on("timeout", () => {
+      console.error("[binance proxy] timeout:", hostname);
+      upstream.destroy();
+    });
+    upstream.end();
+  };
+  tryNext(0);
 }
 
 app.get("/api/binance/klines",       (req, res) => proxyBinanceGet("/api/v3/klines", req, res));
@@ -174,8 +201,12 @@ const SAFE_USER_COLS = `id, account, status, balance, frozen, credit, win_mode, 
   ban_order, ban_withdraw, agent_id, invite_code, type, kyc_status, register_time, session_token`;
 
 const RE_ACCOUNT    = /^[A-Za-z0-9_一-龥]{4,20}$/;
-const RE_PASSWORD   = /^.{6,32}$/;
-const RE_FUND_PWD   = /^\d{6}$/;
+// 登录密码:前端用 safePwd 混淆,实际提交是 14 位 base62 随机串。
+// 这里放宽到 6-64 字符,以兼容 14 位 safePwd 和将来的其它长度。
+const RE_PASSWORD   = /^.{6,64}$/;
+// 资金密码:前端也用 safePwd 混淆,提币时把用户的 6 位 PIN 转成 14 位 base62 提交
+// (屏蔽 Chrome 的密码泄露警告 — 浏览器看到的始终是 14 位强密码)
+const RE_FUND_PWD   = /^[A-Za-z0-9]{14}$/;
 const RE_INVITE     = /^.{1,32}$/;
 
 // ─── Admin Scope (数据归属) ──────────────────────────────────────────────────
@@ -224,7 +255,7 @@ async function requireMemberAccess(req: any, res: any, memberId: number): Promis
     [memberId]
   );
   const m = (rows as any[])[0];
-  if (!m) { res.status(404).json({ error: "not_found", message: "会员不存在" }); return null; }
+  if (!m) { res.status(404).json({ error: "not_found", message: "Member does not exist" }); return null; }
   if (me.role !== "super" && Number(m.agent_id) !== me.id) {
     deny(res, "forbidden", "该客户不属于您的团队");
     return null;
@@ -258,23 +289,23 @@ app.post("/api/auth/register", async (req, res) => {
     // 基础校验
     if (!account || !RE_ACCOUNT.test(String(account))) {
       return res.status(400).json({ error: "invalid_account",
-        message: "账号必须是 4-20 位中英数字下划线" });
+        message: "Account must be 4-20 characters (letters, digits, underscore)" });
     }
     if (!password || !RE_PASSWORD.test(String(password))) {
       return res.status(400).json({ error: "invalid_password",
-        message: "密码长度需 6-32 位" });
+        message: "Password must be 6-32 characters" });
     }
     if (!fundPassword || !RE_FUND_PWD.test(String(fundPassword))) {
       return res.status(400).json({ error: "invalid_fund_password",
-        message: "资金密码必须是 6 位数字" });
+        message: "Fund password format is incorrect" });
     }
     if (fundPassword !== fundPasswordConfirm) {
       return res.status(400).json({ error: "fund_password_mismatch",
-        message: "两次资金密码不一致" });
+        message: "The two fund passwords do not match" });
     }
     if (!inviteCode || !RE_INVITE.test(String(inviteCode))) {
       return res.status(400).json({ error: "invalid_invite_code",
-        message: "邀请码 1-32 字符,且必填" });
+        message: "Invite code is required (1-32 characters)" });
     }
 
     // ★ 核心修复:反查邀请码属于哪个 admin
@@ -298,10 +329,10 @@ app.post("/api/auth/register", async (req, res) => {
       );
       if ((retiredRows as any[]).length > 0) {
         return res.status(400).json({ error: "retired_invite_code",
-          message: "邀请码已作废,请向管理员索取最新邀请码" });
+          message: "This invite code has expired. Please use the latest one." });
       }
       return res.status(400).json({ error: "invalid_invite_code",
-        message: "邀请码无效或所属管理员已禁用" });
+        message: "Invalid invite code, or the inviter has been disabled" });
     }
     const agentId = Number(inviter.id);
 
@@ -312,8 +343,9 @@ app.post("/api/auth/register", async (req, res) => {
     try {
       const [result] = await db.query(
         `INSERT INTO members
-           (account, password_hash, fund_password, session_token, status, type, kyc_status, agent_id, invite_code, register_time)
-         VALUES (?, ?, ?, ?, 1, '会员', '未提交', ?, ?, NOW())`,
+           (account, password_hash, fund_password, session_token, status, type, kyc_status,
+            agent_id, invite_code, win_mode, register_time)
+         VALUES (?, ?, ?, ?, 1, '会员', '未提交', ?, ?, 1, NOW())`,
         [account, passwordHash, fundPwdHash, sessionToken, agentId, inviteCode]
       );
       const insertId = (result as any).insertId;
@@ -321,11 +353,18 @@ app.post("/api/auth/register", async (req, res) => {
         `SELECT ${SAFE_USER_COLS} FROM members WHERE id = ?`,
         [insertId]
       );
+      // 同时下发 HttpOnly cookie(给浏览器/扩展看到的是乱码强密码,JSON 里仍有 session_token 供现有逻辑读取)
+      res.cookie('session', sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 天
+      });
       return res.status(201).json({ user: (rows as any[])[0] });
     } catch (err: any) {
       if (err.code === "ER_DUP_ENTRY") {
         return res.status(409).json({ error: "account_taken",
-          message: "该账号已被注册" });
+          message: "This account is already registered" });
       }
       throw err;
     }
@@ -340,7 +379,7 @@ app.post("/api/auth/login", async (req, res) => {
     const { account, password } = req.body ?? {};
     if (!account || !password) {
       return res.status(400).json({ error: "invalid_input",
-        message: "请输入账号和密码" });
+        message: "Please enter your account and password" });
     }
 
     const [rows] = await db.query(
@@ -354,16 +393,16 @@ app.post("/api/auth/login", async (req, res) => {
     const user = (rows as any[])[0];
     if (!user) {
       return res.status(401).json({ error: "not_found",
-        message: "账号不存在" });
+        message: "Account does not exist" });
     }
     if (user.status === 0) {
       return res.status(403).json({ error: "account_disabled",
-        message: "账号已被禁用" });
+        message: "Account is disabled" });
     }
     const ok = bcrypt.compareSync(String(password), user.password_hash);
     if (!ok) {
       return res.status(401).json({ error: "wrong_password",
-        message: "密码错误" });
+        message: "Incorrect password" });
     }
     // 登录成功 → 重新生成 session_token,旧 token 立即失效(强制下线场景)
     const sessionToken = newSessionToken();
@@ -374,6 +413,13 @@ app.post("/api/auth/login", async (req, res) => {
     user.session_token = sessionToken;
     // 脱敏:不返回 password_hash
     delete user.password_hash;
+    // 同时下发 HttpOnly cookie(给浏览器/扩展看到的是乱码强密码,JSON 里仍有 session_token 供现有逻辑读取)
+    res.cookie('session', sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 天
+    });
     return res.json({ user });
   } catch (err: any) {
     console.error("[login]", err);
@@ -392,19 +438,19 @@ app.post("/api/auth/change-password", async (req, res) => {
 
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id",
-        message: "会员 ID 无效" });
+        message: "Invalid member ID" });
     }
     if (!oldPwd) {
       return res.status(400).json({ error: "missing_old_password",
-        message: "请输入旧密码" });
+        message: "Please enter your current password" });
     }
     if (!RE_PASSWORD.test(newPwd)) {
       return res.status(400).json({ error: "invalid_password",
-        message: "新密码长度需 6-32 位" });
+        message: "New password must be 6-32 characters" });
     }
     if (oldPwd === newPwd) {
       return res.status(400).json({ error: "same_password",
-        message: "新密码不能与旧密码相同" });
+        message: "New password cannot be the same as the current one" });
     }
 
     const [rows] = await db.query(
@@ -414,13 +460,13 @@ app.post("/api/auth/change-password", async (req, res) => {
     );
     const m = (rows as any[])[0];
     if (!m) return res.status(404).json({ error: "not_found",
-      message: "会员不存在" });
+      message: "Member does not exist" });
     if (m.status === 0) return res.status(403).json({ error: "account_disabled",
-      message: "账号已被禁用" });
+      message: "Account is disabled" });
 
     if (!bcrypt.compareSync(oldPwd, m.password_hash)) {
       return res.status(401).json({ error: "wrong_old_password",
-        message: "旧密码错误" });
+        message: "Current password is incorrect" });
     }
 
     const newHash = bcrypt.hashSync(newPwd, 10);
@@ -446,11 +492,11 @@ app.post("/api/auth/change-fund-password", async (req, res) => {
 
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id",
-        message: "会员 ID 无效" });
+        message: "Invalid member ID" });
     }
     if (!RE_FUND_PWD.test(newPwd)) {
       return res.status(400).json({ error: "invalid_fund_password",
-        message: "资金密码必须是 6 位数字" });
+        message: "New fund password format is incorrect" });
     }
 
     const [rows] = await db.query(
@@ -460,23 +506,23 @@ app.post("/api/auth/change-fund-password", async (req, res) => {
     );
     const m = (rows as any[])[0];
     if (!m) return res.status(404).json({ error: "not_found",
-      message: "会员不存在" });
+      message: "Member does not exist" });
     if (m.status === 0) return res.status(403).json({ error: "account_disabled",
-      message: "账号已被禁用" });
+      message: "Account is disabled" });
 
     // 已设置资金密码:必须验证旧密码
     if (m.fund_password) {
       if (!oldPwd) {
         return res.status(400).json({ error: "missing_old_password",
-          message: "请输入当前资金密码" });
+          message: "Please enter your current fund password" });
       }
       if (!bcrypt.compareSync(oldPwd, m.fund_password)) {
         return res.status(401).json({ error: "wrong_old_password",
-          message: "当前资金密码错误" });
+          message: "Fund password is incorrect" });
       }
       if (oldPwd === newPwd) {
         return res.status(400).json({ error: "same_password",
-          message: "新资金密码不能与旧密码相同" });
+          message: "New fund password cannot be the same as the current one" });
       }
     }
 
@@ -513,7 +559,7 @@ app.post("/api/admin/login", async (req, res) => {
     const { username, password } = req.body ?? {};
     if (!username || !password) {
       return res.status(400).json({ error: "invalid_input",
-        message: "请输入账号和密码" });
+        message: "Please enter your account and password" });
     }
     const [rows] = await db.query(
       `SELECT id, username, password_hash, display_name, role, status,
@@ -523,14 +569,14 @@ app.post("/api/admin/login", async (req, res) => {
     );
     const admin = (rows as any[])[0];
     if (!admin) {
-      return res.status(401).json({ error: "not_found", message: "账号不存在" });
+      return res.status(401).json({ error: "not_found", message: "Account does not exist" });
     }
     if (admin.status === 0) {
-      return res.status(403).json({ error: "account_disabled", message: "账号已被禁用" });
+      return res.status(403).json({ error: "account_disabled", message: "Account is disabled" });
     }
     const ok = bcrypt.compareSync(String(password), admin.password_hash);
     if (!ok) {
-      return res.status(401).json({ error: "wrong_password", message: "密码错误" });
+      return res.status(401).json({ error: "wrong_password", message: "Incorrect password" });
     }
     const ip = getClientIp(req);
     // IP 白名单校验(员工角色才生效,super 不受限)
@@ -538,7 +584,7 @@ app.post("/api/admin/login", async (req, res) => {
     if (!isIpAllowed(ip, whitelist)) {
       return res.status(403).json({
         error: "ip_not_allowed",
-        message: "当前 IP 不在白名单内,无法登录",
+        message: "Your current IP is not in the whitelist and cannot sign in",
       });
     }
     // 更新最后登录时间 + IP
@@ -831,11 +877,11 @@ app.post("/api/admin/change-password", async (req, res) => {
     const { id, oldPassword, newPassword } = req.body ?? {};
     if (!id || !oldPassword || !newPassword) {
       return res.status(400).json({ error: "invalid_input",
-        message: "缺少必填字段" });
+        message: "Missing required fields" });
     }
     if (String(newPassword).length < 6 || String(newPassword).length > 32) {
       return res.status(400).json({ error: "invalid_password",
-        message: "新密码需 6-32 位" });
+        message: "New password must be 6-32 characters" });
     }
     const [rows] = await db.query(
       "SELECT id, password_hash FROM admin_users WHERE id = ? LIMIT 1",
@@ -843,11 +889,11 @@ app.post("/api/admin/change-password", async (req, res) => {
     );
     const admin = (rows as any[])[0];
     if (!admin) {
-      return res.status(404).json({ error: "not_found", message: "账号不存在" });
+      return res.status(404).json({ error: "not_found", message: "Account does not exist" });
     }
     const ok = bcrypt.compareSync(String(oldPassword), admin.password_hash);
     if (!ok) {
-      return res.status(401).json({ error: "wrong_password", message: "旧密码错误" });
+      return res.status(401).json({ error: "wrong_password", message: "Current password is incorrect" });
     }
     const newHash = bcrypt.hashSync(String(newPassword), 10);
     await db.query(
@@ -931,14 +977,14 @@ app.post("/api/admin/employees", async (req, res) => {
     const { username, display_name, password, role } = req.body ?? {};
     if (!username || !/^[A-Za-z0-9_]{4,32}$/.test(String(username)))
       return res.status(400).json({ error: "invalid_username",
-        message: "账号需 4-32 位字母数字下划线" });
+        message: "Username must be 4-32 characters (letters, digits, underscore)" });
     if (!password || String(password).length < 6 || String(password).length > 32)
       return res.status(400).json({ error: "invalid_password",
-        message: "密码需 6-32 位" });
+        message: "Password must be 6-32 characters" });
     const r = String(role || "admin");
     if (!["admin", "operator"].includes(r))
       return res.status(400).json({ error: "invalid_role",
-        message: "角色仅支持 admin / operator" });
+        message: "Role must be either admin or operator" });
 
     const passwordHash = bcrypt.hashSync(String(password), 10);
     // 自动生成唯一邀请码
@@ -968,7 +1014,7 @@ app.post("/api/admin/employees", async (req, res) => {
     } catch (e: any) {
       if (e.code === "ER_DUP_ENTRY")
         return res.status(409).json({ error: "username_taken",
-          message: "该账号已存在" });
+          message: "This account already exists" });
       throw e;
     }
   } catch (err: any) {
@@ -1003,7 +1049,7 @@ app.patch("/api/admin/employees/:id", async (req, res) => {
       return res.status(404).json({ error: "not_found" });
     if ((old as any[])[0].role === "super" && fields.role && fields.role !== "super")
       return res.status(403).json({ error: "cannot_demote_super",
-        message: "超级管理员角色不可降级" });
+        message: "The super administrator role cannot be demoted" });
 
     const setSql = Object.keys(fields).map(k => `\`${k}\` = ?`).join(", ");
     await db.query(`UPDATE admin_users SET ${setSql} WHERE id = ?`,
@@ -1030,7 +1076,7 @@ const toggleEmployeeStatus = (enable: boolean) =>
         return res.status(404).json({ error: "not_found" });
       if ((chk as any[])[0].role === "super" && !enable)
         return res.status(403).json({ error: "cannot_disable_super",
-          message: "超级管理员不可禁用" });
+          message: "The super administrator cannot be disabled" });
       await db.query(`UPDATE admin_users SET status = ? WHERE id = ?`,
         [enable ? 1 : 0, id]);
       res.json({ ok: true, status: enable ? 1 : 0 });
@@ -1060,7 +1106,7 @@ app.delete("/api/admin/employees/:id", async (req, res) => {
     if (!emp) return res.status(404).json({ error: "not_found" });
     if (emp.role === "super")
       return res.status(403).json({ error: "cannot_delete_super",
-        message: "超级管理员不可删除" });
+        message: "The super administrator cannot be deleted" });
 
     // 决定客户转移到哪里
     let newAgentId: number | null = null;
@@ -1072,7 +1118,7 @@ app.delete("/api/admin/employees/:id", async (req, res) => {
       newAgentId = Number(reassignTo);
     } else {
       return res.status(400).json({ error: "missing_reassign",
-        message: "请指定 reassignTo: 'admin' 或其他员工 id" });
+        message: "Please specify reassignTo: 'admin' or another employee id" });
     }
 
     // 转移客户 + 作废邀请码
@@ -1100,6 +1146,42 @@ app.delete("/api/admin/employees/:id", async (req, res) => {
     res.json({ ok: true, reassignedTo: newAgentId });
   } catch (err: any) {
     console.error("[employees DELETE]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// 超级管理员重置员工密码(无需旧密码,super 专属)
+// POST /api/admin/employees/:id/reset-password
+//   body: { newPassword }
+app.post("/api/admin/employees/:id/reset-password", async (req, res) => {
+  try {
+    if (!(await requireRole(req, res, ["super"]))) return;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0)
+      return res.status(400).json({ error: "invalid_id" });
+
+    const newPassword = String(req.body?.newPassword ?? "");
+    if (newPassword.length < 6 || newPassword.length > 32)
+      return res.status(400).json({ error: "invalid_password",
+        message: "New password must be 6-32 characters" });
+
+    const [chk] = await db.query(
+      `SELECT id, role, username FROM admin_users WHERE id = ?`, [id]
+    );
+    const emp = (chk as any[])[0];
+    if (!emp) return res.status(404).json({ error: "not_found", message: "Account does not exist" });
+    if (emp.role === "super")
+      return res.status(403).json({ error: "cannot_reset_super_password",
+        message: "The super administrator's password cannot be reset here; please use the Change Password feature" });
+
+    const newHash = bcrypt.hashSync(newPassword, 10);
+    await db.query(
+      "UPDATE admin_users SET password_hash = ? WHERE id = ?",
+      [newHash, id]
+    );
+    return res.json({ ok: true, username: emp.username });
+  } catch (err: any) {
+    console.error("[employees reset-password]", err);
     res.status(500).json({ error: "server_error", message: err.message });
   }
 });
@@ -1136,10 +1218,10 @@ app.post("/api/admin/employees/:id/ip-rules", async (req, res) => {
     const { ip, note } = req.body ?? {};
     const ipStr = String(ip ?? "").trim();
     if (!ipStr) {
-      return res.status(400).json({ error: "invalid_input", message: "请输入 IP" });
+      return res.status(400).json({ error: "invalid_input", message: "Please enter an IP address" });
     }
     if (ipStr.length > 45) {
-      return res.status(400).json({ error: "invalid_input", message: "IP 过长" });
+      return res.status(400).json({ error: "invalid_input", message: "IP address is too long" });
     }
     try {
       const [r] = await db.query(
@@ -1149,7 +1231,7 @@ app.post("/api/admin/employees/:id/ip-rules", async (req, res) => {
       res.json({ ok: true, id: (r as any).insertId });
     } catch (e: any) {
       if (e?.code === "ER_DUP_ENTRY") {
-        return res.status(400).json({ error: "duplicate_ip", message: "该 IP 已在白名单内" });
+        return res.status(400).json({ error: "duplicate_ip", message: "This IP is already in the whitelist" });
       }
       throw e;
     }
@@ -1276,13 +1358,13 @@ app.put("/api/admin/support-links/:agentId", async (req, res) => {
       return res.status(400).json({ error: "invalid_agent_id" });
 
     const url = String(req.body?.url ?? "").trim().slice(0, 512);
-    if (!url) return res.status(400).json({ error: "missing_url", message: "请填写客服链接" });
+    if (!url) return res.status(400).json({ error: "missing_url", message: "Please enter a support link" });
 
     // agent_id > 0 必须存在
     if (agentId > 0) {
       const [rows] = await db.query(`SELECT id FROM admin_users WHERE id = ? LIMIT 1`, [agentId]);
       if (!(rows as any[]).length)
-        return res.status(404).json({ error: "agent_not_found", message: "员工不存在" });
+        return res.status(404).json({ error: "agent_not_found", message: "Employee does not exist" });
     }
 
     const label = String(req.body?.label ?? "").slice(0, 64);
@@ -1312,7 +1394,7 @@ app.delete("/api/admin/support-links/:agentId", async (req, res) => {
     if (!guard) return;
     const agentId = Number(req.params.agentId);
     if (agentId === 0)
-      return res.status(400).json({ error: "cannot_delete_default", message: "全局默认链接不能删除" });
+      return res.status(400).json({ error: "cannot_delete_default", message: "The global default link cannot be deleted" });
     await db.query(`DELETE FROM support_links WHERE agent_id = ?`, [agentId]);
     res.json({ ok: true });
   } catch (err: any) {
@@ -1326,7 +1408,7 @@ app.post("/api/admin/regenerate-invite", async (req, res) => {
     if (!(await requireRole(req, res, ["super"]))) return;
     const { id } = req.body ?? {};
     if (!id) {
-      return res.status(400).json({ error: "invalid_input", message: "缺少 id" });
+      return res.status(400).json({ error: "invalid_input", message: "Missing id" });
     }
     const newCode = genCode(6);
 
@@ -1360,7 +1442,14 @@ app.get("/api/members", async (req, res) => {
     const type     = req.query.type    !== undefined && req.query.type    !== "" ? `AND type = ${mysql.escape(req.query.type)}` : "";
     const kyc      = req.query.kyc     !== undefined && req.query.kyc     !== "" ? `AND kyc_status = ${mysql.escape(req.query.kyc)}` : "";
     const keyword  = String(req.query.keyword ?? "").trim();
-    const kw       = keyword ? `AND (account LIKE ${mysql.escape(`%${keyword}%`)} OR invite_code LIKE ${mysql.escape(`%${keyword}%`)} OR id = ${Number(keyword) || 0})` : "";
+    // 纯整数(含 0) → 精确按 id 查(避免 account LIKE '%1%' 把一堆含 "1" 的账号全捞出来)
+    // 其他文本 → 按 account / invite_code 模糊查
+    const isPureInt = /^\d{1,19}$/.test(keyword);
+    const kw = keyword
+      ? (isPureInt
+          ? `AND id = ${Number(keyword)}`
+          : `AND (account LIKE ${mysql.escape(`%${keyword}%`)} OR invite_code LIKE ${mysql.escape(`%${keyword}%`)})`)
+      : "";
     // 数据归属过滤 — super 看全部,普通员工只看自己的客户
     const scope = await memberScopeWhere(req);
 
@@ -1419,7 +1508,7 @@ app.get("/api/members/:id", async (req, res) => {
 app.put("/api/members/:id", async (req, res) => {
   const memberId = Number(req.params.id);
   if (!Number.isFinite(memberId) || memberId <= 0) {
-    return res.status(400).json({ error: "invalid_member_id", message: "缺少 member_id" });
+    return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
   }
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
@@ -1479,7 +1568,7 @@ app.put("/api/members/:id", async (req, res) => {
       [...values, memberId]
     );
     if ((result as any).affectedRows === 0) {
-      return res.status(404).json({ error: "not_found", message: "会员不存在" });
+      return res.status(404).json({ error: "not_found", message: "Member does not exist" });
     }
     // 写管理员操作日志
     const adminId = await lookupAdminId(reviewer);
@@ -1509,7 +1598,7 @@ app.get("/api/auth/me", async (req, res) => {
   try {
     const memberId = Number(req.query.member_id);
     if (!Number.isFinite(memberId) || memberId <= 0) {
-      return res.status(400).json({ error: "invalid_member_id", message: "缺少 member_id" });
+      return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
     }
     const [rows] = await db.query(
       `SELECT id, account, nickname, phone, email, gender, remark,
@@ -1520,7 +1609,7 @@ app.get("/api/auth/me", async (req, res) => {
       [memberId]
     );
     const user = (rows as any[])[0];
-    if (!user) return res.status(404).json({ error: "not_found", message: "用户不存在" });
+    if (!user) return res.status(404).json({ error: "not_found", message: "User does not exist" });
     res.json({ user });
   } catch (err: any) {
     res.status(500).json({ error: "server_error", message: err.message });
@@ -1672,14 +1761,14 @@ app.post("/api/withdrawals", async (req, res) => {
   const fee = 0;
 
   if (!Number.isFinite(memberId) || memberId <= 0)
-    return res.status(400).json({ error: "invalid_member_id", message: "缺少 member_id" });
+    return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
   if (!walletType || !Number.isFinite(walletId) || walletId <= 0)
-    return res.status(400).json({ error: "invalid_wallet",  message: "请选择提现钱包" });
+    return res.status(400).json({ error: "invalid_wallet",  message: "Please select a withdrawal wallet" });
   if (!Number.isFinite(amount) || amount <= 0)
-    return res.status(400).json({ error: "invalid_amount",  message: "金额必须为正" });
-  if (!/^\d{6}$/.test(fundPwd))
+    return res.status(400).json({ error: "invalid_amount",  message: "Amount must be positive" });
+  if (!RE_FUND_PWD.test(fundPwd))
     return res.status(400).json({ error: "invalid_fund_password",
-      message: "资金密码为 6 位数字" });
+      message: "Fund password format is incorrect" });
 
   const conn = await db.getConnection();
   try {
@@ -1695,10 +1784,10 @@ app.post("/api/withdrawals", async (req, res) => {
     const m = (mRows as any[])[0];
     if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found" }); }
     // 禁提(ban_withdraw)独立语义 — 不再受 status 拦截影响
-    if (m.ban_withdraw === 1) { await conn.rollback(); return res.status(403).json({ error: "ban_withdraw", message: "您已被禁提" }); }
-    if (!m.fund_password) { await conn.rollback(); return res.status(400).json({ error: "no_fund_password", message: "请先设置资金密码" }); }
+    if (m.ban_withdraw === 1) { await conn.rollback(); return res.status(403).json({ error: "ban_withdraw", message: "You have been blocked from withdrawing" }); }
+    if (!m.fund_password) { await conn.rollback(); return res.status(400).json({ error: "no_fund_password", message: "Please set your fund password first" }); }
     if (!bcrypt.compareSync(fundPwd, m.fund_password)) {
-      await conn.rollback(); return res.status(401).json({ error: "wrong_fund_password", message: "资金密码错误" });
+      await conn.rollback(); return res.status(401).json({ error: "wrong_fund_password", message: "Fund password is incorrect" });
     }
     const balance = Number(m.balance);
     if (balance < amount) {
@@ -1715,7 +1804,7 @@ app.post("/api/withdrawals", async (req, res) => {
         [walletId, memberId]
       );
       const w = (wRows as any[])[0];
-      if (!w) { await conn.rollback(); return res.status(404).json({ error: "wallet_not_found", message: "银行卡不存在" }); }
+      if (!w) { await conn.rollback(); return res.status(404).json({ error: "wallet_not_found", message: "Bank card does not exist" }); }
       snap = {
         snap_bank_name: w.bank_name, snap_card_no: w.card_no, snap_holder: w.holder,
         snap_branch: w.branch, snap_ifsc: w.ifsc, snap_id_number: w.id_number,
@@ -1726,7 +1815,7 @@ app.post("/api/withdrawals", async (req, res) => {
         [walletId, memberId]
       );
       const w = (wRows as any[])[0];
-      if (!w) { await conn.rollback(); return res.status(404).json({ error: "wallet_not_found", message: "数字币钱包不存在" }); }
+      if (!w) { await conn.rollback(); return res.status(404).json({ error: "wallet_not_found", message: "Crypto wallet does not exist" }); }
       snap = {
         snap_coin_type: w.type1, snap_network: w.type2, snap_address: w.address,
       };
@@ -1791,7 +1880,7 @@ app.post("/api/withdrawals/:id/approve", async (req, res) => {
     `SELECT w.member_id FROM withdrawals w WHERE w.id = ? LIMIT 1`,
     [wid]
   );
-  if (!(wPre as any[])[0]) return res.status(404).json({ error: "not_found", message: "提现单不存在" });
+  if (!(wPre as any[])[0]) return res.status(404).json({ error: "not_found", message: "Withdrawal request does not exist" });
   const access = await requireMemberAccess(req, res, Number((wPre as any[])[0].member_id));
   if (!access) return;
 
@@ -1809,7 +1898,7 @@ app.post("/api/withdrawals/:id/approve", async (req, res) => {
       [wid]
     );
     const w = (wRows as any[])[0];
-    if (!w) { await conn.rollback(); return res.status(404).json({ error: "not_found_or_settled", message: "申请不存在或已处理" }); }
+    if (!w) { await conn.rollback(); return res.status(404).json({ error: "not_found_or_settled", message: "Request does not exist or has already been processed" }); }
 
     const [mRows] = await conn.query(
       `SELECT id, account, balance, frozen, agent_id, invite_code FROM members WHERE id = ? FOR UPDATE`,
@@ -1840,7 +1929,7 @@ app.post("/api/withdrawals/:id/approve", async (req, res) => {
         m.agent_id, m.invite_code, m.id,
         newBalance, -amount, newBalance,
         "会员提现",
-        `提现单#${w.id} ${w.type} 申请${amount} 手续费${fee} 实付${actAmt}`,
+        `Withdrawal#${w.id} ${w.type} request:${amount} fee:${fee} paid:${actAmt}`,
       ]
     );
 
@@ -1879,7 +1968,7 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
     `SELECT w.member_id FROM withdrawals w WHERE w.id = ? LIMIT 1`,
     [wid]
   );
-  if (!(wPre as any[])[0]) return res.status(404).json({ error: "not_found", message: "提现单不存在" });
+  if (!(wPre as any[])[0]) return res.status(404).json({ error: "not_found", message: "Withdrawal request does not exist" });
   const access = await requireMemberAccess(req, res, Number((wPre as any[])[0].member_id));
   if (!access) return;
 
@@ -1887,7 +1976,7 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
   const rejectReason = String(req.body?.reject_reason ?? "").slice(0, 500);
   const adminNote    = String(req.body?.admin_note ?? "").slice(0, 500);
   if (!rejectReason.trim()) {
-    return res.status(400).json({ error: "missing_reject_reason", message: "请填写拒绝原因" });
+    return res.status(400).json({ error: "missing_reject_reason", message: "Please enter a reject reason" });
   }
 
   const conn = await db.getConnection();
@@ -1899,7 +1988,7 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
       [wid]
     );
     const w = (wRows as any[])[0];
-    if (!w) { await conn.rollback(); return res.status(404).json({ error: "not_found_or_settled", message: "申请不存在或已处理" }); }
+    if (!w) { await conn.rollback(); return res.status(404).json({ error: "not_found_or_settled", message: "Request does not exist or has already been processed" }); }
 
     const [mRows] = await conn.query(
       `SELECT id, account, balance, frozen, agent_id, invite_code FROM members WHERE id = ? FOR UPDATE`,
@@ -1923,7 +2012,7 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
         m.agent_id, m.invite_code, m.id,
         Number(m.balance), amount, newBalance,
         "会员提现",
-        `提现单#${w.id} 拒绝退款 原因:${rejectReason}`,
+        `Withdrawal#${w.id} rejected refund reason:${rejectReason}`,
       ]
     );
 
@@ -2059,7 +2148,7 @@ app.post("/api/members/:id/wallets/bank", async (req, res) => {
   const isDefault = req.body?.is_default ? 1 : 0;
 
   if (!bank_name || !card_no || !holder)
-    return res.status(400).json({ error: "missing_required", message: "银行名/卡号/持卡人必填" });
+    return res.status(400).json({ error: "missing_required", message: "Bank name / Card number / Cardholder is required" });
 
   const conn = await db.getConnection();
   try {
@@ -2102,9 +2191,9 @@ app.put("/api/members/:id/wallets/bank/:wid", async (req, res) => {
   const isDefault = req.body?.is_default ? 1 : 0;
 
   if (!bank_name || !card_no || !holder)
-    return res.status(400).json({ error: "missing_required", message: "银行名/卡号/持卡人必填" });
-  if (id_number && !/^\d{17}[\dXx]$/.test(id_number))
-    return res.status(400).json({ error: "invalid_id_number" });
+    return res.status(400).json({ error: "missing_required", message: "Bank name / Card number / Cardholder is required" });
+  // 注:id_number 不再强制 18 位身份证格式 — 老数据可能是任意字符,强制校验会导致
+  //     已存在的卡片无法被编辑。仅校验长度(<=20)。
 
   const conn = await db.getConnection();
   try {
@@ -2148,7 +2237,7 @@ app.delete("/api/members/:id/wallets/bank/:wid", async (req, res) => {
   );
   if (Number((refRows as any[])[0].cnt) > 0) {
     return res.status(409).json({ error: "wallet_in_use",
-      message: "该卡被在途提现引用,无法删除" });
+      message: "Card is referenced by a pending withdrawal and cannot be deleted" });
   }
   await db.query(`DELETE FROM bank_wallets WHERE id = ? AND member_id = ?`,
     [wid, memberId]);
@@ -2186,7 +2275,7 @@ app.post("/api/members/:id/wallets/digital", async (req, res) => {
   const isDefault = req.body?.is_default ? 1 : 0;
 
   if (!type1 || !type2 || !address)
-    return res.status(400).json({ error: "missing_required", message: "币种/网络/地址必填" });
+    return res.status(400).json({ error: "missing_required", message: "Currency / Network / Address are required" });
 
   const conn = await db.getConnection();
   try {
@@ -2263,7 +2352,7 @@ app.delete("/api/members/:id/wallets/digital/:wid", async (req, res) => {
   );
   if (Number((refRows as any[])[0].cnt) > 0) {
     return res.status(409).json({ error: "wallet_in_use",
-      message: "该钱包被在途提现引用,无法删除" });
+      message: "Wallet is referenced by a pending withdrawal and cannot be deleted" });
   }
   await db.query(`DELETE FROM digital_wallets WHERE id = ? AND member_id = ?`,
     [wid, memberId]);
@@ -2429,8 +2518,8 @@ app.post("/api/messages", async (req, res) => {
     const title   = String(req.body?.title ?? "").slice(0, 128).trim();
     const content = String(req.body?.content ?? "").slice(0, 1024).trim();
     const sender  = String(req.body?.sender  ?? "admin").slice(0, 64);
-    if (!title)                                    return res.status(400).json({ error: "missing_title",   message: "请填写标题" });
-    if (!content)                                  return res.status(400).json({ error: "missing_content", message: "请填写详情" });
+    if (!title)                                    return res.status(400).json({ error: "missing_title",   message: "Title is required" });
+    if (!content)                                  return res.status(400).json({ error: "missing_content", message: "Content is required" });
     if (memberId !== null && (!Number.isFinite(memberId) || memberId <= 0)) {
       return res.status(400).json({ error: "invalid_member_id" });
     }
@@ -2456,7 +2545,7 @@ app.post("/api/members/:id/recharge", async (req, res) => {
   const notes  = String(req.body?.notes ?? "").slice(0, 255).trim() || "System";
   const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
-  if (!Number.isFinite(amount) || amount <= 0)     return res.status(400).json({ error: "invalid_amount", message: "金额必须为正数" });
+  if (!Number.isFinite(amount) || amount <= 0)     return res.status(400).json({ error: "invalid_amount", message: "Amount must be a positive number" });
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
   if (!access) return;
@@ -2469,7 +2558,7 @@ app.post("/api/members/:id/recharge", async (req, res) => {
       [memberId]
     );
     const m = (rows as any[])[0];
-    if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "会员不存在" }); }
+    if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "Member does not exist" }); }
     const before = Number(m.balance);
     const after  = before + amount;
     await conn.query(`UPDATE members SET balance = ? WHERE id = ?`, [after, memberId]);
@@ -2506,7 +2595,7 @@ app.post("/api/members/:id/deduct", async (req, res) => {
   const notes  = String(req.body?.notes ?? "").slice(0, 255).trim() || "System";
   const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
-  if (!Number.isFinite(amount) || amount <= 0)     return res.status(400).json({ error: "invalid_amount", message: "金额必须为正数" });
+  if (!Number.isFinite(amount) || amount <= 0)     return res.status(400).json({ error: "invalid_amount", message: "Amount must be a positive number" });
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
   if (!access) return;
@@ -2519,7 +2608,7 @@ app.post("/api/members/:id/deduct", async (req, res) => {
       [memberId]
     );
     const m = (rows as any[])[0];
-    if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "会员不存在" }); }
+    if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "Member does not exist" }); }
     const before = Number(m.balance);
     if (before < amount) {
       await conn.rollback();
@@ -2560,7 +2649,7 @@ app.post("/api/members/:id/freeze", async (req, res) => {
   const notes     = String(req.body?.notes ?? "").slice(0, 255).trim() || "System";
   const reviewer  = String(req.body?.reviewer ?? "admin").slice(0, 64);
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
-  if (!Number.isFinite(amount)   || amount   <= 0) return res.status(400).json({ error: "invalid_amount",  message: "金额必须为正数" });
+  if (!Number.isFinite(amount)   || amount   <= 0) return res.status(400).json({ error: "invalid_amount",  message: "Amount must be a positive number" });
   if (!["freeze","unfreeze"].includes(action))      return res.status(400).json({ error: "invalid_action" });
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
@@ -2574,7 +2663,7 @@ app.post("/api/members/:id/freeze", async (req, res) => {
       [memberId]
     );
     const m = (rows as any[])[0];
-    if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "会员不存在" }); }
+    if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "Member does not exist" }); }
 
     const balance = Number(m.balance);
     const frozen  = Number(m.frozen);
@@ -2642,15 +2731,15 @@ app.post("/api/members/:id/reset-password", async (req, res) => {
   const newPwd    = String(req.body?.new_password ?? "");
   const reviewer  = String(req.body?.reviewer ?? "admin").slice(0, 64);
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
-  if (newPwd.length < 6 || newPwd.length > 32)
-    return res.status(400).json({ error: "invalid_password", message: "登录密码长度需 6-32 位" });
+  if (newPwd.length < 6 || newPwd.length > 64)
+    return res.status(400).json({ error: "invalid_password", message: "Password must be 6-64 characters" });
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
   if (!access) return;
   try {
     const [rows] = await db.query(`SELECT id, account FROM members WHERE id = ? LIMIT 1`, [memberId]);
     const m = (rows as any[])[0];
-    if (!m) return res.status(404).json({ error: "not_found", message: "会员不存在" });
+    if (!m) return res.status(404).json({ error: "not_found", message: "Member does not exist" });
 
     const passwordHash = bcrypt.hashSync(newPwd, 10);
     await db.query(`UPDATE members SET password_hash = ? WHERE id = ?`, [passwordHash, memberId]);
@@ -2677,14 +2766,14 @@ app.post("/api/members/:id/reset-fund-password", async (req, res) => {
   const reviewer  = String(req.body?.reviewer ?? "admin").slice(0, 64);
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
   if (!/^\d{6}$/.test(newPwd))
-    return res.status(400).json({ error: "invalid_fund_password", message: "资金密码必须是 6 位数字" });
+    return res.status(400).json({ error: "invalid_fund_password", message: "Fund password format is incorrect" });
   // 数据归属校验
   const access = await requireMemberAccess(req, res, memberId);
   if (!access) return;
   try {
     const [rows] = await db.query(`SELECT id, account FROM members WHERE id = ? LIMIT 1`, [memberId]);
     const m = (rows as any[])[0];
-    if (!m) return res.status(404).json({ error: "not_found", message: "会员不存在" });
+    if (!m) return res.status(404).json({ error: "not_found", message: "Member does not exist" });
 
     const fundPwdHash = bcrypt.hashSync(newPwd, 10);
     await db.query(`UPDATE members SET fund_password = ? WHERE id = ?`, [fundPwdHash, memberId]);
@@ -2722,7 +2811,7 @@ app.post("/api/admin/members/:id/force-logout", async (req, res) => {
       [memberId]
     );
     const m = (rows as any[])[0];
-    if (!m) return res.status(404).json({ error: "not_found", message: "会员不存在" });
+    if (!m) return res.status(404).json({ error: "not_found", message: "Member does not exist" });
 
     const newToken = newSessionToken();
     await db.query(
@@ -2985,7 +3074,7 @@ app.get("/api/orders/mine", async (req, res) => {
   try {
     const memberId = Number(req.query.member_id);
     if (!Number.isFinite(memberId) || memberId <= 0) {
-      return res.status(400).json({ error: "invalid_member_id", message: "缺少 member_id" });
+      return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
     }
     const status = req.query.status ? String(req.query.status) : "";
     const statusSql = status ? `AND status = ${mysql.escape(status)}` : "";
@@ -3011,11 +3100,11 @@ app.get("/api/orders/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0) {
-      return res.status(400).json({ error: "invalid_id", message: "无效订单 id" });
+      return res.status(400).json({ error: "invalid_id", message: "Invalid order id" });
     }
     const memberId = Number(req.query.member_id);
     if (!Number.isFinite(memberId) || memberId <= 0) {
-      return res.status(400).json({ error: "invalid_member_id", message: "缺少 member_id" });
+      return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
     }
     // 数据归属校验
     const access = await requireMemberAccess(req, res, memberId);
@@ -3030,7 +3119,7 @@ app.get("/api/orders/:id", async (req, res) => {
       [id, memberId]
     );
     const order = (rows as any[])[0];
-    if (!order) return res.status(404).json({ error: "not_found", message: "订单不存在" });
+    if (!order) return res.status(404).json({ error: "not_found", message: "Order does not exist" });
     res.json({ order });
   } catch (err: any) {
     console.error("[orders/:id]", err);
@@ -3050,19 +3139,19 @@ app.post("/api/orders", async (req, res) => {
   const returnRateFromBody = Number(req.body?.return_rate);
 
   if (!Number.isFinite(memberId) || memberId <= 0) {
-    return res.status(400).json({ error: "invalid_member_id", message: "缺少 member_id" });
+    return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
   }
   if (!symbol || !/^[A-Z0-9]{4,16}$/.test(symbol)) {
-    return res.status(400).json({ error: "invalid_symbol", message: "交易对无效" });
+    return res.status(400).json({ error: "invalid_symbol", message: "Invalid trading pair" });
   }
   if (!PERIOD_RETURN_RATES[period]) {
-    return res.status(400).json({ error: "invalid_period", message: "周期无效,允许: 30s/60s/120s/180s/240s" });
+    return res.status(400).json({ error: "invalid_period", message: "Invalid period, allowed: 30s/60s/120s/180s/240s" });
   }
   if (!Number.isFinite(amount) || amount <= 0) {
-    return res.status(400).json({ error: "invalid_amount", message: "请填写订单金额" });
+    return res.status(400).json({ error: "invalid_amount", message: "Order amount is required" });
   }
   if (!Number.isFinite(openPrice) || openPrice <= 0) {
-    return res.status(400).json({ error: "invalid_price", message: "价格无效" });
+    return res.status(400).json({ error: "invalid_price", message: "Invalid price" });
   }
 
   // 用户在 TradingPage 选的收益率(优先);没传或非法 → fallback 到默认周期表
@@ -3081,9 +3170,9 @@ app.post("/api/orders", async (req, res) => {
       [memberId]
     );
     const m = (mRows as any[])[0];
-    if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "用户不存在" }); }
+    if (!m) { await conn.rollback(); return res.status(404).json({ error: "not_found", message: "User does not exist" }); }
     // 禁单(ban_order)独立语义 — 不再受 status 拦截影响
-    if (m.ban_order === 1) { await conn.rollback(); return res.status(403).json({ error: "ban_order", message: "您已被禁单" }); }
+    if (m.ban_order === 1) { await conn.rollback(); return res.status(403).json({ error: "ban_order", message: "You have been blocked from placing orders" }); }
     const balance = Number(m.balance);
     if (balance < amount) {
       await conn.rollback();
@@ -3102,7 +3191,7 @@ app.post("/api/orders", async (req, res) => {
     await conn.query(
       `INSERT INTO fund_records (agent_id, invite_code, member_id, \`before\`, amount, \`after\`, type, notes, time)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [m.agent_id, m.invite_code, memberId, balance, -amount, newBalance, "下单", `${symbol} ${direction} ${period}`]
+      [m.agent_id, m.invite_code, memberId, balance, -amount, newBalance, "下单", `${symbol} ${direction === '涨' ? 'up' : 'down'} ${period}`]
     );
 
     // 下单时锁定 win_flag(后续改 win_mode 不影响在途订单)
@@ -3327,7 +3416,7 @@ app.post("/api/orders/settle-due", async (_req, res) => {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [o.agent_id, o.member_invite_code ?? null, o.member_id,
            Number(m.balance), flowAmount, newBalance,
-           "订单结算", `${o.symbol} ${o.direction} ${o.period} ${isWin ? '赢' : '输'} 本金${o.amount}${isWin ? ` + 盈利${profit}` : ''}`]
+           "订单结算", `${o.symbol} ${o.direction === '涨' ? 'up' : 'down'} ${o.period} ${isWin ? 'WIN' : 'LOSE'} principal:${o.amount}${isWin ? ` + profit:${profit}` : ''}`]
         );
         await conn.commit();
         settledIds.push(o.id);

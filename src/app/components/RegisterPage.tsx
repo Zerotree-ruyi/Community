@@ -1,9 +1,10 @@
-import { Mail, Lock, Eye, EyeOff, User, Gift, Wallet, AlertCircle, Loader2, CheckCircle2, Globe } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User, Gift, AlertCircle, Loader2, CheckCircle2, Globe } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LanguageSelector } from './LanguageSelector';
+import { StrongPasswordField } from './StrongPasswordField';
 import registerDecoration from 'figma:asset/a79a50fec1d78cc9ef81aef367ae50acbe40700d.png';
 
 export function RegisterPage() {
@@ -162,50 +163,56 @@ export function RegisterPage() {
             <FieldHint>{t('auth.passwordHint')}</FieldHint>
           )}
 
-          {/* Fund Password */}
-          <Field
-            label={t('auth.fundPassword')}
-            required
-            icon={<Wallet className="w-5 h-5 text-gray-500" />}
-          >
-            <input
-              type="password"
-              autoComplete="new-password"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              value={fundPassword}
-              onChange={(e) => setFundPassword(e.target.value.replace(/\D/g, ''))}
-              placeholder={t('auth.fundPasswordPlaceholder')}
-              disabled={loading}
-              className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 disabled:opacity-60 tracking-widest"
-            />
-            {fundPassword.length > 0 && <StatusIcon ok={fundPwdOk} />}
-          </Field>
+          {/* Fund Password — 用 StrongPasswordField,Chrome 看到的是 safePwd 强密码 */}
+          <div className="mb-4">
+            <label className="block text-sm text-gray-400 mb-2">
+              {t('auth.fundPassword')}
+              <span className="text-red-400 ml-0.5">*</span>
+            </label>
+            <div className="flex items-center border-b border-gray-700 focus-within:border-[#c4f82a] py-3 transition-colors">
+              <Lock className="w-5 h-5 text-gray-500" />
+              <div className="flex-1 flex items-center">
+                <StrongPasswordField
+                  value={fundPassword}
+                  onChange={setFundPassword}
+                  placeholder={t('auth.fundPasswordPlaceholder')}
+                  maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  disabled={loading}
+                  className="!bg-transparent !rounded-none !border-0 !px-0 !py-0 focus-within:!border-0"
+                />
+                {fundPassword.length > 0 && <StatusIcon ok={fundPwdOk} />}
+              </div>
+            </div>
+          </div>
           {fundPassword.length > 0 && !fundPwdOk && (
             <FieldHint>{t('auth.fundPasswordInvalid')}</FieldHint>
           )}
 
           {/* Confirm Fund Password */}
-          <Field
-            label={t('auth.fundPasswordConfirm')}
-            required
-            icon={<Lock className="w-5 h-5 text-gray-500" />}
-          >
-            <input
-              type="password"
-              autoComplete="new-password"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              value={fundPasswordConfirm}
-              onChange={(e) => setFundPasswordConfirm(e.target.value.replace(/\D/g, ''))}
-              placeholder={t('auth.fundPasswordConfirmPlaceholder')}
-              disabled={loading}
-              className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 disabled:opacity-60 tracking-widest"
-            />
-            {fundPasswordConfirm.length > 0 && <StatusIcon ok={fundPwdMatch} />}
-          </Field>
+          <div className="mb-4">
+            <label className="block text-sm text-gray-400 mb-2">
+              {t('auth.fundPasswordConfirm')}
+              <span className="text-red-400 ml-0.5">*</span>
+            </label>
+            <div className="flex items-center border-b border-gray-700 focus-within:border-[#c4f82a] py-3 transition-colors">
+              <Lock className="w-5 h-5 text-gray-500" />
+              <div className="flex-1 flex items-center">
+                <StrongPasswordField
+                  value={fundPasswordConfirm}
+                  onChange={setFundPasswordConfirm}
+                  placeholder={t('auth.fundPasswordConfirmPlaceholder')}
+                  maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  disabled={loading}
+                  className="!bg-transparent !rounded-none !border-0 !px-0 !py-0 focus-within:!border-0"
+                />
+                {fundPasswordConfirm.length > 0 && <StatusIcon ok={fundPwdMatch} />}
+              </div>
+            </div>
+          </div>
           {fundPasswordConfirm.length > 0 && !fundPwdMatch && (
             <FieldHint>{t('auth.fundPasswordMismatch')}</FieldHint>
           )}

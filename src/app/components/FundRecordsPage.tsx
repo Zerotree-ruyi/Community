@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
+import { fmtDateTime } from '../utils/date';
 
 interface FundRecord {
   id:         number;
@@ -232,7 +233,7 @@ export function FundRecordsPage() {
                       <div className="text-sm mb-1 font-medium">{typeLabel}</div>
                       <div className="text-xs text-gray-400 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {r.time}
+                        {fmtDateTime(r.time)}
                       </div>
                     </div>
                   </div>

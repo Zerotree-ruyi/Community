@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { OrderCard } from './OrderCard';
+import { fmtDateTime } from '../utils/date';
 
 interface Order {
   id: number;
@@ -32,11 +33,8 @@ const FILTERS = [
 type FilterId = typeof FILTERS[number]['id'];
 
 function fmtTime(s: string | null | undefined): string {
-  if (!s) return '--';
-  const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
-  if (Number.isNaN(d.getTime())) return s;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  // 抽到 src/app/utils/date.ts — 输出 en-US "Oct 16, 2026, 19:35"
+  return fmtDateTime(s || '--');
 }
 
 function fmtAmount(n: number): string {

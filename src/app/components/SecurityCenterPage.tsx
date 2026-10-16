@@ -6,11 +6,17 @@ export function SecurityCenterPage() {
   const { t } = useLanguage();
   const navigate = useNavigate();
 
+  // 返回按钮 — 默认跳 /profile(直接打开 /security 时 navigate(-1) 不会动)
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/profile');
+  };
+
   return (
     <div className="min-h-screen bg-black text-white pb-20">
       {/* Header */}
       <div className="flex items-center justify-center p-4 relative">
-        <button onClick={() => navigate(-1)} className="absolute left-4">
+        <button onClick={handleBack} className="absolute left-4">
           <ArrowLeft className="w-6 h-6 text-white" />
         </button>
         <h1 className="text-lg">{t('security.title')}</h1>
