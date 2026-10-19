@@ -163,7 +163,6 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
         <div>
           <div className="flex items-baseline gap-1.5 mb-1">
             <span className="text-xl text-red-400 font-semibold">-{amount.toFixed(2)}</span>
-            <span className="text-sm text-gray-400">USDT</span>
           </div>
           <div className="text-xs text-gray-500">{fmtDateTime(w.apply_time)}</div>
         </div>
@@ -201,9 +200,9 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
 
       {/* 金额明细 */}
       <div className="text-xs space-y-1.5">
-        <Row label="Request" value={`${amount.toFixed(2)} USDT`} />
-        <Row label="Fee" value={`${fee.toFixed(2)} USDT`} />
-        <Row label="Paid" value={`${actual.toFixed(2)} USDT`} valueClass="text-emerald-400" />
+        <Row label="Request" value={amount.toFixed(2)} />
+        <Row label="Fee" value={fee.toFixed(2)} />
+        <Row label="Paid" value={actual.toFixed(2)} valueClass="text-emerald-400" />
       </div>
 
       {/* 审核信息 */}
