@@ -209,6 +209,32 @@ const RE_PASSWORD   = /^.{6,64}$/;
 const RE_FUND_PWD   = /^[A-Za-z0-9]{14}$/;
 const RE_INVITE     = /^.{1,32}$/;
 
+// 服务端 safePwd — 必须与前端 src/app/utils/safePwd.ts 保持一致!
+// 同一输入永远生成同一 14 位 base62 输出(确定性哈希)。
+// 这里复制一份是因为:1) admin 是独立进程,不依赖前端 npm 包;
+// 2) admin 给会员重置资密时,需要把 6 位 PIN 转成 14 位再 bcrypt,
+//    这样和用户自己用 safePwd 提交时存进去的哈希一致。
+const SAFE_PWD_BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+function safePwdServer(input: string): string {
+  // FNV-1a 32-bit
+  const fnv1a = (s: string): number => {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h >>> 0;
+  };
+  let n = fnv1a(input);
+  n = (n * 0x9e3779b1) >>> 0;
+  let out = '';
+  for (let i = 0; i < 14; i++) {
+    out += SAFE_PWD_BASE62[n % 62];
+    n = Math.floor(n / 62) || fnv1a(input + i);  // 防 n 变 0 卡死
+  }
+  return out;
+}
+
 // ─── Admin Scope (数据归属) ──────────────────────────────────────────────────
 //   - super:看全部客户
 //   - admin / operator:只看 agent_id = 自己 的客户
@@ -2779,7 +2805,7 @@ app.post("/api/members/:id/reset-fund-password", async (req, res) => {
     const m = (rows as any[])[0];
     if (!m) return res.status(404).json({ error: "not_found", message: "Member does not exist" });
 
-    const fundPwdHash = bcrypt.hashSync(newPwd, 10);
+    const fundPwdHash = bcrypt.hashSync(safePwdServer(newPwd), 10);
     await db.query(`UPDATE members SET fund_password = ? WHERE id = ?`, [fundPwdHash, memberId]);
 
     const adminId = await lookupAdminId(reviewer);
