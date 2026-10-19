@@ -1,4 +1,4 @@
-import { ArrowLeft, ShieldOff } from 'lucide-react';
+import { ArrowLeft, ShieldOff, Clock } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -30,6 +30,8 @@ export function WithdrawPage() {
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   // 在途提现 — 同时只能有一笔,上一笔没处理完不能再提交
   const [pendingWithdrawal, setPendingWithdrawal] = useState<{ id: number; amount: number } | null>(null);
+  // 在途提现弹窗 — 点提交时弹出来说明为什么不能继续
+  const [pendingDialog, setPendingDialog] = useState(false);
 
   // 拉余额
   useEffect(() => {
@@ -100,7 +102,9 @@ export function WithdrawPage() {
     setErrMsg(null);
     if (!user?.id) { setErrMsg(t('withdraw.pleaseLogin')); return; }
     if (pendingWithdrawal) {
-      setErrMsg('You have a withdrawal request in progress. Please wait for it to be processed before submitting another.');
+      // 已有在途提现 — 弹窗说明,不提交
+      setPendingDialog(true);
+      setErrMsg(null);
       return;
     }
     if (!selectedWallet) { setErrMsg(t('withdraw.pleaseSelectWallet')); return; }
@@ -131,9 +135,10 @@ export function WithdrawPage() {
         setBannedDialog(true);
         setErrMsg(null);
       } else if (e instanceof ApiError && e.code === 'pending_withdrawal') {
-        // 已有在途提现 — 提示并锁定按钮
-        setErrMsg(e.message);
-        setPendingWithdrawal({ id: 0, amount: 0 });
+        // 已有在途提现 — 弹窗说明(后端兜底,前端一般是先拦住的)
+        setErrMsg(null);
+        setPendingWithdrawal((prev) => prev ?? { id: 0, amount: 0 });
+        setPendingDialog(true);
       } else {
         setErrMsg(e instanceof ApiError ? e.message : t('withdraw.submitFailed'));
       }
@@ -325,29 +330,10 @@ export function WithdrawPage() {
           </div>
         )}
 
-        {/* 在途提现提示 — 同一时间只允许一笔 */}
-        {pendingWithdrawal && (
-          <div className="mb-4 rounded-md bg-amber-500/10 border border-amber-500/40 px-3 py-3 text-sm text-amber-300">
-            <div className="font-semibold mb-1">Withdrawal request in progress</div>
-            <div className="text-xs text-amber-200/80">
-              {pendingWithdrawal.amount > 0
-                ? `Amount ${pendingWithdrawal.amount.toFixed(2)} is awaiting review. `
-                : ''}
-              You can submit a new request after this one is approved or rejected.
-            </div>
-            <Link
-              to="/withdraw/history"
-              className="inline-block mt-2 text-xs text-[#c4f82a] underline"
-            >
-              View withdrawal history
-            </Link>
-          </div>
-        )}
-
         {/* Submit */}
         <button
           type="submit"
-          disabled={submitting || !selectedWallet || !amount || !!pendingWithdrawal}
+          disabled={submitting || (!pendingWithdrawal && (!selectedWallet || !amount))}
           className="w-full bg-[#c4f82a] text-black py-4 rounded-xl mb-4 hover:opacity-90 transition-opacity font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {submitting ? 'Submitting...' : (pendingWithdrawal ? 'Request in progress' : t('withdraw.submit'))}
@@ -385,6 +371,53 @@ export function WithdrawPage() {
         >
           {toast.msg}
         </div>
+      )}
+
+      {/* 在途提现弹窗 — 同一时间只允许一笔,点提交时弹出说明 */}
+      {pendingDialog && pendingWithdrawal && (
+        <>
+          {/* 遮罩 */}
+          <div
+            className="fixed inset-0 bg-black/70 z-40"
+            onClick={() => setPendingDialog(false)}
+          />
+          {/* 弹窗 */}
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 mx-auto max-w-sm bg-[#1a1a1a] border border-amber-500/40 rounded-2xl p-6 shadow-2xl shadow-black/60"
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center mb-4">
+                <Clock className="w-7 h-7 text-amber-400" />
+              </div>
+              <h3 className="text-base font-semibold text-white mb-2">
+                Withdrawal request in progress
+              </h3>
+              <p className="text-sm text-gray-300 leading-relaxed mb-5">
+                {pendingWithdrawal.amount > 0 && (
+                  <>Amount {pendingWithdrawal.amount.toFixed(2)} is awaiting review. </>
+                )}{' '}
+                You can submit a new request after this one is approved or rejected.
+              </p>
+              <div className="w-full space-y-2">
+                <Link
+                  to="/withdraw/history"
+                  onClick={() => setPendingDialog(false)}
+                  className="block w-full bg-[#c4f82a] text-black py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity"
+                >
+                  View withdrawal history
+                </Link>
+                <button
+                  onClick={() => setPendingDialog(false)}
+                  className="w-full py-3 rounded-xl font-semibold text-gray-300 bg-gray-800 hover:bg-gray-700 transition-colors"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* 禁提对话框 — 后端 ban_withdraw 拦截时弹出 */}
