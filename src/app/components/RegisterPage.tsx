@@ -1,4 +1,4 @@
-import { Mail, Lock, Eye, EyeOff, User, Gift, AlertCircle, Loader2, CheckCircle2, Globe } from 'lucide-react';
+import { Mail, Lock, User, Gift, AlertCircle, Loader2, CheckCircle2, Globe } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -12,7 +12,6 @@ export function RegisterPage() {
   const { t } = useLanguage();
   const { register, loading, error, clearError, user } = useAuth();
 
-  const [showPassword, setShowPassword] = useState(false);
   const [account, setAccount] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -140,24 +139,24 @@ export function RegisterPage() {
             />
           </Field>
 
-          {/* Login Password */}
+          {/* Login Password — StrongPasswordField:Chrome 看到的是 safePwd 强密码 */}
           <Field
             label={t('register.password')}
             required
             icon={<Lock className="w-5 h-5 text-gray-500" />}
           >
-            <input
-              type={showPassword ? 'text' : 'password'}
+            <StrongPasswordField
               value={password}
-              onChange={(e) => { setPassword(e.target.value); if (error) clearError(); }}
+              onChange={(v) => { setPassword(v); if (error) clearError(); }}
               placeholder={t('register.passwordPlaceholder')}
+              maxLength={32}
+              inputMode="text"
               autoComplete="new-password"
               disabled={loading}
-              className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 disabled:opacity-60"
+              filter={(s) => s}
+              inputClassName="!py-0 !tracking-normal"
+              className="flex-1 !bg-transparent !rounded-none !border-0 !px-0 !py-0 focus-within:!border-0"
             />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
-              {showPassword ? <EyeOff className="w-5 h-5 text-gray-500" /> : <Eye className="w-5 h-5 text-gray-500" />}
-            </button>
           </Field>
           {password.length > 0 && !passwordOk && (
             <FieldHint>{t('auth.passwordHint')}</FieldHint>

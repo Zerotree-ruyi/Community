@@ -1,16 +1,16 @@
-import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader2, Globe } from 'lucide-react';
+import { Mail, Lock, AlertCircle, Loader2, Globe } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LanguageSelector } from './LanguageSelector';
+import { StrongPasswordField } from './StrongPasswordField';
 import loginDecoration from 'figma:asset/bd06caca71bbe78500a161706bf8396c06cd33e7.png';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const { login, loading, error, clearError, user } = useAuth();
-  const [showPassword, setShowPassword] = useState(false);
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
@@ -126,34 +126,25 @@ export function LoginPage() {
             </div>
           </div>
 
-          {/* Password Field */}
+          {/* Password Field — StrongPasswordField:Chrome 看到的是 safePwd 强密码 */}
           <div className="mb-4">
             <label className="block text-sm text-gray-400 mb-2">
               {t('login.password')}
             </label>
             <div className="flex items-center border-b border-gray-700 focus-within:border-[#c4f82a] py-3 transition-colors">
-              <Lock className="w-5 h-5 text-gray-500 mr-3" />
-              <input
-                type={showPassword ? 'text' : 'password'}
+              <StrongPasswordField
                 value={password}
-                onChange={(e) => { setPassword(e.target.value); if (error) clearError(); }}
+                onChange={(v) => { setPassword(v); if (error) clearError(); }}
                 placeholder={t('login.passwordPlaceholder')}
+                maxLength={32}
+                inputMode="text"
                 autoComplete="current-password"
                 disabled={loading}
-                className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 disabled:opacity-60"
+                filter={(s) => s}
+                icon={<Lock className="w-5 h-5 text-gray-500 mr-3" />}
+                inputClassName="!py-0 !tracking-normal"
+                className="flex-1 !bg-transparent !rounded-none !border-0 !px-0 !py-0 focus-within:!border-0"
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="ml-2"
-                tabIndex={-1}
-              >
-                {showPassword ? (
-                  <EyeOff className="w-5 h-5 text-gray-500" />
-                ) : (
-                  <Eye className="w-5 h-5 text-gray-500" />
-                )}
-              </button>
             </div>
           </div>
 

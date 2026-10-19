@@ -33,6 +33,10 @@ interface Props {
   autoComplete?: string;
   disabled?: boolean;
   className?: string;
+  /** 主输入框的额外 class(用来调 py / 字距,配合外层下划线样式) */
+  inputClassName?: string;
+  /** 输入框左侧图标 */
+  icon?: React.ReactNode;
   /** 输入字符过滤器(默认只允许数字) */
   filter?: (s: string) => string;
 }
@@ -46,6 +50,8 @@ export function StrongPasswordField({
   autoComplete = 'new-password',
   disabled = false,
   className = '',
+  inputClassName = '',
+  icon = null,
   filter = (s) => s.replace(/\D/g, ''),
 }: Props) {
   const [show, setShow] = useState(false);
@@ -56,6 +62,9 @@ export function StrongPasswordField({
     <div
       className={`flex items-center bg-[#1a1a1a] rounded-xl border border-transparent focus-within:border-[#c4f82a] transition-colors px-4 ${className}`}
     >
+      {/* 左侧图标(可选) */}
+      {icon}
+
       {/* ── 主输入:用户在这里输入(视觉上像密码) ── */}
       <input
         type="text"
@@ -69,7 +78,7 @@ export function StrongPasswordField({
         aria-label="password input"
         // 关键:type="text" + -webkit-text-security → 视觉上是 • 但 Chrome 不管它
         style={{ WebkitTextSecurity: show ? 'none' : 'disc' }}
-        className="flex-1 bg-transparent outline-none py-4 text-white placeholder:text-gray-600 tracking-widest disabled:opacity-60"
+        className={`flex-1 bg-transparent outline-none py-4 text-white placeholder:text-gray-600 tracking-widest disabled:opacity-60 ${inputClassName}`}
       />
 
       {/* ── 隐藏的 password input:Chrome 看到的"密码" ── */}
