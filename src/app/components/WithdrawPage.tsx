@@ -13,7 +13,7 @@ const MIN_AMOUNT = 10;
 
 export function WithdrawPage() {
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const navigate = useNavigate();
 
   const [walletType, setWalletType] = useState<WalletType>('digital');
@@ -28,6 +28,8 @@ export function WithdrawPage() {
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [bannedDialog, setBannedDialog] = useState(false);
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  // 在途提现 — 同时只能有一笔,上一笔没处理完不能再提交
+  const [pendingWithdrawal, setPendingWithdrawal] = useState<{ id: number; amount: number } | null>(null);
 
   // 拉余额
   useEffect(() => {
@@ -37,6 +39,18 @@ export function WithdrawPage() {
         const res = await fetch(`/api/members/${user.id}`);
         const data = await res.json();
         if (res.ok) setBalance(Number(data?.balance || 0));
+      } catch { /* 静默 */ }
+    })();
+  }, [user?.id]);
+
+  // 查在途提现 — 同一时间只允许一笔
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      try {
+        const { data } = await api.myWithdrawals(user.id, '申请中');
+        const p = data?.[0];
+        setPendingWithdrawal(p ? { id: p.id, amount: Number(p.amount) } : null);
       } catch { /* 静默 */ }
     })();
   }, [user?.id]);
@@ -85,6 +99,10 @@ export function WithdrawPage() {
     if (e) e.preventDefault();
     setErrMsg(null);
     if (!user?.id) { setErrMsg(t('withdraw.pleaseLogin')); return; }
+    if (pendingWithdrawal) {
+      setErrMsg('You have a withdrawal request in progress. Please wait for it to be processed before submitting another.');
+      return;
+    }
     if (!selectedWallet) { setErrMsg(t('withdraw.pleaseSelectWallet')); return; }
     if (!amount || numAmount <= 0) { setErrMsg(t('withdraw.pleaseEnterAmount')); return; }
     if (numAmount < MIN_AMOUNT) { setErrMsg(t('withdraw.minAmount', { min: MIN_AMOUNT })); return; }
@@ -103,12 +121,19 @@ export function WithdrawPage() {
         fund_password: safePwd(fundPwd),
       });
       showToast('ok', t('withdraw.submitSuccess'));
+      // 余额已扣 — 刷新用户信息,顺带把在途提现锁上
+      refresh().catch(() => {});
+      setPendingWithdrawal({ id: 0, amount: numAmount });
       setTimeout(() => navigate('/withdraw/history'), 800);
     } catch (e) {
       // 账号被禁提 — 弹独立对话框(更醒目,提示这是管理员操作)
       if (e instanceof ApiError && e.code === 'ban_withdraw') {
         setBannedDialog(true);
         setErrMsg(null);
+      } else if (e instanceof ApiError && e.code === 'pending_withdrawal') {
+        // 已有在途提现 — 提示并锁定按钮
+        setErrMsg(e.message);
+        setPendingWithdrawal({ id: 0, amount: 0 });
       } else {
         setErrMsg(e instanceof ApiError ? e.message : t('withdraw.submitFailed'));
       }
@@ -300,13 +325,32 @@ export function WithdrawPage() {
           </div>
         )}
 
+        {/* 在途提现提示 — 同一时间只允许一笔 */}
+        {pendingWithdrawal && (
+          <div className="mb-4 rounded-md bg-amber-500/10 border border-amber-500/40 px-3 py-3 text-sm text-amber-300">
+            <div className="font-semibold mb-1">Withdrawal request in progress</div>
+            <div className="text-xs text-amber-200/80">
+              {pendingWithdrawal.amount > 0
+                ? `Amount ${pendingWithdrawal.amount.toFixed(2)} is awaiting review. `
+                : ''}
+              You can submit a new request after this one is approved or rejected.
+            </div>
+            <Link
+              to="/withdraw/history"
+              className="inline-block mt-2 text-xs text-[#c4f82a] underline"
+            >
+              View withdrawal history
+            </Link>
+          </div>
+        )}
+
         {/* Submit */}
         <button
           type="submit"
-          disabled={submitting || !selectedWallet || !amount}
+          disabled={submitting || !selectedWallet || !amount || !!pendingWithdrawal}
           className="w-full bg-[#c4f82a] text-black py-4 rounded-xl mb-4 hover:opacity-90 transition-opacity font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {submitting ? 'Submitting...' : t('withdraw.submit')}
+          {submitting ? 'Submitting...' : (pendingWithdrawal ? 'Request in progress' : t('withdraw.submit'))}
         </button>
 
         {/* Notice */}
@@ -314,11 +358,15 @@ export function WithdrawPage() {
           <div className="text-xs text-gray-500 space-y-2">
             <div className="flex items-start gap-2">
               <span>•</span>
-              <span>After a withdrawal request is submitted, the corresponding balance will be frozen and credited once approved.</span>
+              <span>After a withdrawal request is submitted, the amount is deducted from your available balance and credited once approved.</span>
             </div>
             <div className="flex items-start gap-2">
               <span>•</span>
-              <span>If the review is rejected, the frozen amount will be returned to your available balance.</span>
+              <span>If the review is rejected, the amount will be returned to your available balance.</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span>•</span>
+              <span>Only one withdrawal request can be in progress at a time. Please wait for the current one to be processed.</span>
             </div>
             <div className="flex items-start gap-2">
               <span>•</span>

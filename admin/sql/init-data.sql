@@ -55,7 +55,7 @@ INSERT INTO `members`
 VALUES
   (1, 'z123',
    '$2a$10$StmEdhjMpGi60qBlFZDLN.AqqCqj70qCJV02PQFtG6nJ4Pgccm6vu',
-   '$2a$10$s5wyb6Jpvc/CJEzaiwUZRuXUzdPz.vnEcSgljaf4rMWVpe6zY52YW',
+   '$2a$10$/X4qgfddT8rvggWp1sTTcOQIf1Cka5a98dpr3fuDfH7zpWCmaVeby',
    'SUPER01', 1, 1000.00, 0.00, '100|1', 2, '蓝随机', '涨', 0, 0, 1, '会员')
 ON DUPLICATE KEY UPDATE
   `password_hash` = VALUES(`password_hash`),

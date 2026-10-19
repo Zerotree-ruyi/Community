@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { directionText } from './OrderCard';
 
 interface Order {
   id: number;
@@ -224,7 +225,7 @@ export function OrderDetailPage() {
         />
         <Row
           label={t('orders.detail.direction')}
-          value={order.direction === '涨' ? t('orders.call') : t('orders.put')}
+          value={directionText(order.direction)}
           valueClass={`font-medium ${directionColor(order.direction)}`}
         />
         <Row

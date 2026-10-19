@@ -82,6 +82,17 @@ function splitBase(symbol: string): string {
   return symbol.replace(/USDT$/i, '').replace(/\/.*$/, '');
 }
 
+/**
+ * 方向文案 — 与交易页按钮保持一致(Buy up / Buy Down)
+ * DB 里存的是中文 '涨' / '跌',接口也可能回 'up' / 'down'
+ */
+export function directionText(d: string | undefined | null): string {
+  const v = String(d ?? '').toLowerCase();
+  if (v === '涨' || v === 'up' || v === 'buy') return 'Buy up';
+  if (v === '跌' || v === 'down' || v === 'sell') return 'Buy Down';
+  return 'Buy up';
+}
+
 /** 收益率显示:取整 + % */
 function fmtReturnRate(rate: number | null | undefined): string {
   const n = Number(rate);
@@ -106,7 +117,7 @@ export function OrderCard({ order, onClick, onCopy, copiedId = null }: OrderCard
     : order.profit < 0 ? 'text-white'        // 亏 = 白
     : 'text-white';
   const profitSign  = order.profit && order.profit > 0 ? '+' : '';
-  const dirText     = order.directionLabel ?? 'Buy';
+  const dirText     = order.directionLabel ?? directionText(order.direction);
   const returnRateText = fmtReturnRate(order.return_rate ?? order.scale);  // 兼容老数据 scale
   const periodText  = order.period;
   const orderTime   = fmtTime(order.open_time);

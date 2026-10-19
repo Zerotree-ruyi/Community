@@ -143,7 +143,7 @@ export function OrderInProgressDialog({
               <div>
                 <div className="text-xs text-gray-400">{getOrderText('predictDirection')}</div>
                 <div className={`text-xl ${direction === 'up' ? 'text-green-400' : 'text-red-400'}`}>
-                  {direction === 'up' ? t('orders.call') : t('orders.put')}
+                  {direction === 'up' ? 'Buy up' : 'Buy Down'}
                 </div>
               </div>
             </div>

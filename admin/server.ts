@@ -1819,6 +1819,17 @@ app.post("/api/withdrawals", async (req, res) => {
     if (!bcrypt.compareSync(fundPwd, m.fund_password)) {
       await conn.rollback(); return res.status(401).json({ error: "wrong_fund_password", message: "Fund password is incorrect" });
     }
+    // 同时只能有一笔提现在途 — 上一笔没处理完不能再提交
+    const [pendRows] = await conn.query(
+      `SELECT id, amount FROM withdrawals WHERE member_id = ? AND status = '申请中' LIMIT 1`,
+      [memberId]
+    );
+    const pending = (pendRows as any[])[0];
+    if (pending) {
+      await conn.rollback();
+      return res.status(409).json({ error: "pending_withdrawal",
+        message: "You have a withdrawal request in progress. Please wait for it to be processed." });
+    }
     const balance = Number(m.balance);
     if (balance < amount) {
       await conn.rollback();
@@ -1851,12 +1862,13 @@ app.post("/api/withdrawals", async (req, res) => {
       };
     }
 
-    // 3) 冻结金额
+    // 3) 扣余额 — 只动 balance,不动 frozen
+    //    frozen 只代表后台手动冻结的金额,提现在途不进 frozen
     const newBalance = balance - amount;
-    const newFrozen  = Number(m.frozen) + amount;
+    const newFrozen  = Number(m.frozen);
     await conn.query(
-      `UPDATE members SET balance = ?, frozen = ? WHERE id = ?`,
-      [newBalance, newFrozen, memberId]
+      `UPDATE members SET balance = ? WHERE id = ?`,
+      [newBalance, memberId]
     );
 
     // 4) 写提现单(含快照)
@@ -1943,12 +1955,12 @@ app.post("/api/withdrawals/:id/approve", async (req, res) => {
       ? overrideAct
       : Number(w.actual_amount ?? (amount - fee));
 
-    // 解冻(申请时已扣过 balance,这里只清 frozen)
-    const newFrozen  = Math.max(0, Number(m.frozen) - amount);
+    // 通过:申请时已扣过 balance,这里不重复扣,也不动 frozen
+    const newFrozen  = Number(m.frozen);
     const newBalance = Number(m.balance);
     await conn.query(
-      `UPDATE members SET frozen = ? WHERE id = ?`,
-      [newFrozen, m.id]
+      `UPDATE members SET balance = ? WHERE id = ?`,
+      [newBalance, m.id]
     );
 
     // 写资金流水(type='会员提现',amount = -amount 表示出款)
@@ -2028,11 +2040,11 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
     if (!m) { await conn.rollback(); return res.status(404).json({ error: "member_not_found" }); }
 
     const amount = Number(w.amount);
-    const newFrozen  = Math.max(0, Number(m.frozen) - amount);
+    const newFrozen  = Number(m.frozen);
     const newBalance = Number(m.balance) + amount;   // 退余额
     await conn.query(
-      `UPDATE members SET balance = ?, frozen = ? WHERE id = ?`,
-      [newBalance, newFrozen, m.id]
+      `UPDATE members SET balance = ? WHERE id = ?`,
+      [newBalance, m.id]
     );
 
     await conn.query(
@@ -3157,7 +3169,7 @@ app.get("/api/orders/:id", async (req, res) => {
   }
 });
 
-// 下单(秒合约) — 校验金额 > 0,扣余额(冻结),生成订单,等结算后入账
+// 下单(秒合约) — 校验金额 > 0,扣余额,生成订单,等结算后入账(frozen 不参与)
 app.post("/api/orders", async (req, res) => {
   const memberId  = Number(req.body?.member_id);
   const symbol    = String(req.body?.symbol ?? "").trim().toUpperCase();
@@ -3209,12 +3221,13 @@ app.post("/api/orders", async (req, res) => {
       return res.status(400).json({ error: "insufficient_balance", message: `余额不足,当前 ${balance.toFixed(2)}` });
     }
 
-    // 冻结下单金额
+    // 扣下单金额 — 只动 balance,不动 frozen
+    //    frozen 只代表后台手动冻结的金额,持仓中的订单不进 frozen
     const newBalance = balance - amount;
-    const newFrozen  = Number(m.frozen) + amount;
+    const newFrozen  = Number(m.frozen);
     await conn.query(
-      `UPDATE members SET balance = ?, frozen = ? WHERE id = ?`,
-      [newBalance, newFrozen, memberId]
+      `UPDATE members SET balance = ? WHERE id = ?`,
+      [newBalance, memberId]
     );
 
     // 写资金流水(下单扣款)— type='下单',FundRecordsPage 用这个分类显示
@@ -3326,7 +3339,7 @@ app.get("/api/orders", async (req, res) => {
 //   - 扫描 status='持仓中' AND billing_time <= NOW() 的订单
 //   - 按 win_flag 决定 outcome:1=要赢(看真实行情) 0=要输(强制输) 2=随机
 //   - 在事务里:UPDATE orders (close_price, profit, settle_amount, status='已平仓', close_time=NOW())
-//              UPDATE members (frozen -= amount, balance += settle_amount)
+//              UPDATE members (balance += settle_amount,frozen 不参与)
 //              INSERT fund_records type='订单结算'
 //   - 返回本次结算的订单 id 数组,前端轮询后用这个数组触发 invalidate
 app.post("/api/orders/settle-due", async (_req, res) => {
@@ -3417,11 +3430,11 @@ app.post("/api/orders/settle-due", async (_req, res) => {
         );
         const m = (mRows as any[])[0];
         if (!m) { await conn.rollback(); continue; }
-        const newFrozen  = Math.max(0, Number(m.frozen) - amount);
+        const newFrozen  = Number(m.frozen);
         const newBalance = Number(m.balance) + settleAmount;
         await conn.query(
-          `UPDATE members SET balance = ?, frozen = ? WHERE id = ?`,
-          [newBalance, newFrozen, o.member_id]
+          `UPDATE members SET balance = ? WHERE id = ?`,
+          [newBalance, o.member_id]
         );
         // 注意:只在状态还是"持仓中"时才更新,防止并发重复结算
         const [updRes] = await conn.query(
