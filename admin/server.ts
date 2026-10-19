@@ -255,9 +255,13 @@ async function requireMemberAccess(req: any, res: any, memberId: number): Promis
     [memberId]
   );
   const m = (rows as any[])[0];
-  if (!m) { res.status(404).json({ error: "not_found", message: "Member does not exist" }); return null; }
+  if (!m) {
+    // 会员不存在 — 可能是老数据孤儿卡(member 已被删,卡还在)。
+    // 仍然放行(让后续 UPDATE / DELETE 决定),方便后台清理这种孤儿数据。
+    return { agent_id: -1 };
+  }
   if (me.role !== "super" && Number(m.agent_id) !== me.id) {
-    deny(res, "forbidden", "该客户不属于您的团队");
+    deny(res, "forbidden", "This member is not in your team");
     return null;
   }
   return { agent_id: Number(m.agent_id) };
