@@ -1576,7 +1576,9 @@ app.put("/api/members/:id", async (req, res) => {
     fields.status = req.body.status === "启用" || req.body.status === 1 || req.body.status === "1" ? 1 : 0;
   }
   if (req.body?.direction !== undefined) {
-    fields.direction = req.body.direction === "up" || req.body.direction === "涨" ? "涨" : "跌";
+    // 涨 = up / buy / 涨;其余(down / sell / 跌)算跌
+    const d = String(req.body.direction).toLowerCase();
+    fields.direction = (d === "up" || d === "buy" || d === "涨") ? "涨" : "跌";
   }
   if (req.body?.ban_order !== undefined) {
     fields.ban_order = req.body.ban_order === "ban" || req.body.ban_order === 1 || req.body.ban_order === "1" ? 1 : 0;
@@ -3173,7 +3175,11 @@ app.get("/api/orders/:id", async (req, res) => {
 app.post("/api/orders", async (req, res) => {
   const memberId  = Number(req.body?.member_id);
   const symbol    = String(req.body?.symbol ?? "").trim().toUpperCase();
-  const direction = req.body?.direction === "跌" || req.body?.direction === "sell" ? "跌" : "涨";
+  // 方向:前端发 'up' / 'down',后台/旧数据可能是 '涨' / '跌' / 'buy' / 'sell'
+  //   跌的判定要同时认 'down' / 'sell' / '跌' —— 之前漏了 'down',
+  //   导致点 Buy Down 存成了 '涨',详情页显示 Buy up
+  const rawDir = String(req.body?.direction ?? "").toLowerCase();
+  const direction = (rawDir === "down" || rawDir === "sell" || rawDir === "跌") ? "跌" : "涨";
   const amount    = Number(req.body?.amount);
   const openPrice = Number(req.body?.open_price);
   const period    = String(req.body?.period ?? "30s");
