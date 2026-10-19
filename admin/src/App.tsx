@@ -1515,12 +1515,9 @@ function FreezeModal({
         : `冻结余额不足,当前 ${frozen.toFixed(2)}`);
       return;
     }
-    if (!notes.trim()) {
-      setErr("请填写备注");
-      return;
-    }
     setSubmitting(true);
     try {
+      // 备注非必填 — 留空时后端默认记 "System"
       const r = await api.freezeMember(member.id, n, notes.trim(), mode, "admin");
       onDone(
         `✔ ${isFreeze ? "冻结" : "解冻"}成功 ${member.account} ${n.toFixed(2)} ` +
