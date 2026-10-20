@@ -69,13 +69,13 @@ ON DUPLICATE KEY UPDATE
 -- 预置了首次/最后登录时间和双栈 IP 链(IPv6 + IPv4)
 -- ============================================
 INSERT INTO `members`
-  (`id`, `account`, `password_hash`, `fund_password`, `invite_code`,
+  (`account`, `password_hash`, `fund_password`, `invite_code`,
    `status`, `balance`, `frozen`, `credit`, `win_mode`, `tag`,
    `direction`, `ban_order`, `ban_withdraw`, `agent_id`, `type`,
    `register_time`, `first_login_time`, `first_login_ip`,
    `last_login_time`, `last_login_ip`)
 VALUES
-  (3, 'testip01',
+  ('testip01',
    '$2a$10$8CGLirIc/m4siGu4V47N9eRqlYLkueB4NJfuEqKuvteqs68s6ck62',
    '$2a$10$TPlABaZR73F2aiBudvc2YOhKJDdaapAB484THZ0BORp6xDCmnbmte',
    'SUPER01', 1, 5000.00, 0.00, '100|1', 2, '蓝随机', '涨', 0, 0, 1, '会员',
