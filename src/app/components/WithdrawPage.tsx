@@ -73,7 +73,7 @@ export function WithdrawPage() {
       const def = list.find((w) => w.is_default === 1);
       setSelectedId(def ? def.id : list[0]?.id ?? null);
     } catch (e) {
-      setErrMsg(e instanceof ApiError ? e.message : '加载失败');
+      setErrMsg(e instanceof ApiError ? e.message : t('withdraw.loadFailed'));
     } finally {
       setLoading(false);
     }

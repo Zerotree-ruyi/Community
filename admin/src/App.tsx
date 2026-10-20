@@ -120,6 +120,19 @@ const BADGE_MAP: Record<string, string> = {
   blue: "badge-blue", purple: "badge-purple", gold: "badge-gold",
 };
 
+// 提现拒绝原因预设 — 全部英文。
+// 原因会原样显示在前台的提现记录页,所以不能让管理员随手写中文。
+const REJECT_REASON_OTHER = "__other__";
+const REJECT_REASONS = [
+  "Insufficient balance",
+  "Account information mismatch",
+  "Suspicious activity detected",
+  "Account is under review",
+  "Payment failed",
+  "Amount exceeds daily limit",
+  REJECT_REASON_OTHER,
+];
+
 function Badge({ label, color = "gray" }: { label: string; color?: string }) {
   return <span className={`badge ${BADGE_MAP[color] || "badge-gray"}`}>{label}</span>;
 }
@@ -1099,6 +1112,8 @@ function SendMessageModal({ member, mode = "single", onClose, onDone }: {
   const contentLen  = content.length;
   const titleOver   = titleLen    > TITLE_MAX;
   const contentOver = contentLen  > CONTENT_MAX;
+  // 站内信会整篇显示在前台 —— 含中文会直接漏到用户眼前,这里标个警告
+  const hasChinese = /[一-龥]/.test(title) || /[一-龥]/.test(content);
 
   const submit = async () => {
     setErr(null);
@@ -1254,6 +1269,16 @@ function SendMessageModal({ member, mode = "single", onClose, onDone }: {
                   minHeight: 120,
                 }}
               />
+
+              {hasChinese && (
+                <div style={{
+                  marginTop: 10, padding: "8px 12px",
+                  background: "#fffbe6", border: "1px solid #ffe58f",
+                  borderRadius: 4, color: "#ad6800", fontSize: 13,
+                }}>
+                  ⚠ 标题/详情里含中文,会原样显示在前台(前台是英文界面)。建议改用英文。
+                </div>
+              )}
 
               {err && (
                 <div style={{
@@ -3118,7 +3143,8 @@ function WithdrawListPage() {
   const [rejectFor, setRejectFor] = useState<Withdrawal | null>(null);
   const [approved, setApproved] = useState("");
   const [approveNote, setApproveNote] = useState("");
-  const [rejectReason, setRejectReason] = useState("");
+  const [rejectReasonPreset, setRejectReasonPreset] = useState("");
+  const [rejectReasonCustom, setRejectReasonCustom] = useState("");
   const [rejectNote, setRejectNote] = useState("");
   const [acting, setActing] = useState(false);
 
@@ -3153,7 +3179,8 @@ function WithdrawListPage() {
   };
   const openReject = (w: Withdrawal) => {
     setRejectFor(w);
-    setRejectReason("");
+    setRejectReasonPreset("");
+    setRejectReasonCustom("");
     setRejectNote("");
   };
 
@@ -3180,12 +3207,21 @@ function WithdrawListPage() {
 
   const submitReject = async () => {
     if (!rejectFor) return;
-    if (!rejectReason.trim()) { alert("请填写拒绝原因"); return; }
+    // 拒绝原因会显示在前台的提现记录页 —— 必须是英文,
+    // 所以走预设选项(英文),选 Other 时才让管理员自己写(仍需英文)
+    const finalReason = rejectReasonPreset === REJECT_REASON_OTHER
+      ? rejectReasonCustom.trim()
+      : rejectReasonPreset.trim();
+    if (!finalReason) { alert("请选择或填写拒绝原因"); return; }
+    if (/[一-龥]/.test(finalReason)) {
+      alert("拒绝原因会显示给用户,请填写英文");
+      return;
+    }
     setActing(true);
     try {
       await api.rejectWithdrawal(rejectFor.id, {
         reviewer: admin?.display_name || admin?.username || "admin",
-        reject_reason: rejectReason.trim(),
+        reject_reason: finalReason,
         admin_note: rejectNote,
       });
       alert("已拒绝,金额已退回");
@@ -3350,8 +3386,40 @@ function WithdrawListPage() {
             <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>
               会员: <strong>{rejectFor.member_account || `#${rejectFor.member_id}`}</strong> · 金额 {fmtNum(rejectFor.amount)} 将退回余额
             </div>
-            <WalletField label="拒绝原因 *" value={rejectReason} onChange={setRejectReason} placeholder="必填,用户可见" textarea />
-            <WalletField label="Admin Note" value={rejectNote} onChange={setRejectNote} placeholder="Optional, internal only" textarea />
+            {/* 拒绝原因 — 用户可见,必须是英文,所以给预设选项 */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#555", marginBottom: 5 }}>
+                拒绝原因 <span style={{ color: "#f5222d" }}>*</span>
+                <span style={{ fontWeight: 400, color: "#999", marginLeft: 6 }}>用户可见 · 请选英文</span>
+              </label>
+              <select
+                value={rejectReasonPreset}
+                onChange={(e) => setRejectReasonPreset(e.target.value)}
+                style={{
+                  width: "100%", padding: "8px 10px",
+                  border: "1px solid #d9d9d9", borderRadius: 4,
+                  fontSize: 14, background: "white", color: "#333",
+                  outline: "none", boxSizing: "border-box",
+                }}
+              >
+                <option value="">请选择拒绝原因</option>
+                {REJECT_REASONS.map(r => (
+                  <option key={r} value={r}>
+                    {r === REJECT_REASON_OTHER ? "Other(自行填写,需英文)" : r}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {rejectReasonPreset === REJECT_REASON_OTHER && (
+              <WalletField
+                label="自定义拒绝原因 *"
+                value={rejectReasonCustom}
+                onChange={setRejectReasonCustom}
+                placeholder="Please write in English — this is shown to the user"
+                textarea
+              />
+            )}
+            <WalletField label="Admin Note" value={rejectNote} onChange={setRejectNote} placeholder="Optional, internal only — not shown to the user" textarea />
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn" onClick={() => setRejectFor(null)} disabled={acting}>取消</button>
               <button className="btn btn-danger" onClick={submitReject} disabled={acting}>

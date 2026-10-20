@@ -147,11 +147,13 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
     数字币: 'Crypto',
     银行卡: 'Bank Card',
   };
-  // 管理员名称:统一展示为 "Finance Admin"(原中文"超级管理员"/员工名都映射过去)
+  // 管理员名称:统一展示为 "Finance Admin"
+  //   display_name 是自由文本(种子数据有"超级管理员"/"测试员工"),
+  //   只有纯 ASCII(系统生成的 work_xxx 员工名)才原样显示,其余一律映射
   const reviewerLabel = (s: string) => {
     if (!s) return s;
-    if (s === '超级管理员' || s.toLowerCase() === 'admin') return 'Finance Admin';
-    return s; // 员工名(work_xxx)保留原样
+    if (/^[A-Za-z0-9_.-]{1,32}$/.test(s)) return s;
+    return 'Finance Admin';
   };
   const amount = Number(w.amount);
   const fee = Number(w.fee);
@@ -206,12 +208,13 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
         <Row label="Paid" value={actual.toFixed(2)} valueClass="text-emerald-400" />
       </div>
 
-      {/* 审核信息 */}
+      {/* 审核信息
+          注意:admin_note 后台标的是 "internal only",是给管理员自己看的备注,
+          不该出现在前台 —— 展示出来既是契约不一致,也会把管理员手写的中文带到前台 */}
       {w.status === '已同意' && (
         <div className="mt-3 pt-3 border-t border-gray-700/50 text-xs space-y-1">
           {w.reviewer && <Row label="Reviewer" value={reviewerLabel(w.reviewer)} />}
           {w.approve_time && <Row label="Review Time" value={fmtDateTime(w.approve_time)} />}
-          {w.admin_note && <Row label="Note" value={w.admin_note} />}
         </div>
       )}
       {w.status === '已拒绝' && (
@@ -224,7 +227,6 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
               <div className="text-red-400 bg-red-500/10 rounded px-2 py-1.5">{w.reject_reason}</div>
             </div>
           )}
-          {w.admin_note && <Row label="Admin Note" value={w.admin_note} />}
         </div>
       )}
     </div>
