@@ -88,6 +88,21 @@ function fmtNum(n: number) {
   return n.toLocaleString("zh-CN");
 }
 
+/**
+ * 时间格式化 — MySQL DATETIME 经 driver 转成 ISO 串(或 Date 对象)
+ * 输出 "YYYY-MM-DD HH:mm:ss",空值显示 "—"
+ */
+function fmtDateTime(s: string | Date | null | undefined): string {
+  if (!s) return "—";
+  const d = s instanceof Date
+    ? s
+    : new Date(String(s).includes("T") ? String(s) : String(s).replace(" ", "T") + "Z");
+  if (Number.isNaN(d.getTime())) return String(s);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+         `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 // ─── Mini Components ──────────────────────────────────────────────────────────
 function Toggle({ value, onClick }: { value: boolean; onClick?: () => void }) {
   return (
@@ -770,7 +785,11 @@ function MembersPage() {
                 <tr key={m.id}>
                   <td><input type="checkbox" checked={checkedAll} onChange={() => {}} /></td>
                   <td className="num-cell" style={{ color: "#888" }}>{m.id}</td>
-                  <td className="link-cell">{m.account}</td>
+                  <td
+                    className="link-cell"
+                    onClick={() => setEditTarget(m)}
+                    title="点击编辑该会员"
+                  >{m.account}</td>
                   <td><Toggle value={m.status === 1} onClick={() => toggleStatus(m)} /></td>
                   <td className="num-cell">{fmtNum(Number(m.balance))} | {fmtNum(Number(m.frozen))}</td>
                   <td>{(() => { const p = String(m.credit || "").split("|"); return `${p[0] || 0} | V${p[1] || 0}`; })()}</td>
@@ -1989,6 +2008,15 @@ function EditMemberModal({ member, onClose, onSave }: {
 
   const initial = (member.account || "?").charAt(0).toUpperCase();
 
+  // 只读输入框样式(账号 / 登录信息)
+  const readOnlyStyle: CSSProperties = {
+    width: "100%", padding: "7px 10px",
+    border: "1px solid #d9d9d9", borderRadius: 4,
+    background: "#f5f5f5", color: "#666",
+    fontSize: 14, outline: "none",
+    cursor: "not-allowed",
+  };
+
   return (
     <div
       onClick={onClose}
@@ -2105,13 +2133,7 @@ function EditMemberModal({ member, onClose, onSave }: {
                   <input
                     value={data.account}
                     readOnly
-                    style={{
-                      width: "100%", padding: "7px 10px",
-                      border: "1px solid #d9d9d9", borderRadius: 4,
-                      background: "#f5f5f5", color: "#666",
-                      fontSize: 14, outline: "none",
-                      cursor: "not-allowed",
-                    }}
+                    style={readOnlyStyle}
                   />
                 </Field>
                 <Field label="昵称">
@@ -2179,6 +2201,46 @@ function EditMemberModal({ member, onClose, onSave }: {
                       }}
                     />
                   </Field>
+                </div>
+
+                {/* 登录信息 — 只读,跨两列 */}
+                <div style={{ gridColumn: "1 / span 2" }}>
+                  <div style={{
+                    fontSize: 13, color: "#999", marginBottom: 8,
+                    paddingTop: 10, borderTop: "1px solid #f0f0f0",
+                  }}>登录信息</div>
+                  <div style={{
+                    display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 16, rowGap: 14,
+                  }}>
+                    <Field label="首次登录时间">
+                      <input
+                        value={fmtDateTime(member.first_login_time)}
+                        readOnly
+                        style={readOnlyStyle}
+                      />
+                    </Field>
+                    <Field label="最后登录时间">
+                      <input
+                        value={fmtDateTime(member.last_login_time)}
+                        readOnly
+                        style={readOnlyStyle}
+                      />
+                    </Field>
+                    <Field label="公网 IP">
+                      <input
+                        value={member.last_login_ip || "—"}
+                        readOnly
+                        style={readOnlyStyle}
+                      />
+                    </Field>
+                    <Field label="注册时间">
+                      <input
+                        value={fmtDateTime(member.register_time)}
+                        readOnly
+                        style={readOnlyStyle}
+                      />
+                    </Field>
+                  </div>
                 </div>
               </div>
             </div>

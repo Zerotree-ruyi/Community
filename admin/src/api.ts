@@ -38,6 +38,7 @@ export interface Member {
   type: string;
   kyc_status: string;
   register_time: string;
+  first_login_time: string | null;
   last_login_time: string | null;
   last_login_ip: string | null;
 }

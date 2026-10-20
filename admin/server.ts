@@ -198,7 +198,8 @@ app.get("/api/support-link", async (req, res) => {
 
 // ─── Auth (注册 / 登录) ──────────────────────────────────────────────────────
 const SAFE_USER_COLS = `id, account, status, balance, frozen, credit, win_mode, tag,
-  ban_order, ban_withdraw, agent_id, invite_code, type, kyc_status, register_time, session_token`;
+  ban_order, ban_withdraw, agent_id, invite_code, type, kyc_status, register_time,
+  first_login_time, last_login_time, last_login_ip, session_token`;
 
 const RE_ACCOUNT    = /^[A-Za-z0-9_一-龥]{4,20}$/;
 // 登录密码:前端用 safePwd 混淆,实际提交是 14 位 base62 随机串。
@@ -436,9 +437,17 @@ app.post("/api/auth/login", async (req, res) => {
     }
     // 登录成功 → 重新生成 session_token,旧 token 立即失效(强制下线场景)
     const sessionToken = newSessionToken();
+    // first_login_time 只在第一次登录时写入(COALESCE 保持原值)
+    // last_login_ip 记录会员的公网 IP(经 nginx 反代时走 x-forwarded-for)
+    const clientIp = getClientIp(req);
     await db.query(
-      `UPDATE members SET session_token = ?, last_login_time = NOW() WHERE id = ?`,
-      [sessionToken, user.id]
+      `UPDATE members
+          SET session_token   = ?,
+              first_login_time = COALESCE(first_login_time, NOW()),
+              last_login_time  = NOW(),
+              last_login_ip    = ?
+        WHERE id = ?`,
+      [sessionToken, clientIp || null, user.id]
     );
     user.session_token = sessionToken;
     // 脱敏:不返回 password_hash
@@ -1486,7 +1495,7 @@ app.get("/api/members", async (req, res) => {
     const [rows] = await db.query(
       `SELECT id, account, status, balance, frozen, credit, win_mode, tag, direction,
               ban_order, ban_withdraw, agent_id, invite_code, type,
-              kyc_status, register_time, last_login_time, last_login_ip
+              kyc_status, register_time, first_login_time, last_login_time, last_login_ip
          FROM members
         WHERE 1=1 ${status} ${type} ${kyc} ${kw} ${scope}
         ORDER BY register_time DESC

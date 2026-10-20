@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS `members` (
   `type`            ENUM('会员','代理','管理员') NOT NULL DEFAULT '会员',
   `kyc_status`      ENUM('未提交','审核中','已通过','已拒绝') NOT NULL DEFAULT '未提交',
   `register_time`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `first_login_time` DATETIME DEFAULT NULL COMMENT '首次登录时间',
   `last_login_time` DATETIME DEFAULT NULL,
   `last_login_ip`   VARCHAR(45) DEFAULT NULL,
   PRIMARY KEY (`id`),
