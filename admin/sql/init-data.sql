@@ -63,6 +63,35 @@ ON DUPLICATE KEY UPDATE
   `balance`       = VALUES(`balance`);
 
 -- ============================================
+-- 测试会员 testip01 — 用来演示后台的"登录信息"区块
+-- 登录密码: Test@123456
+-- 资金密码: 123456
+-- 预置了首次/最后登录时间和双栈 IP 链(IPv6 + IPv4)
+-- ============================================
+INSERT INTO `members`
+  (`id`, `account`, `password_hash`, `fund_password`, `invite_code`,
+   `status`, `balance`, `frozen`, `credit`, `win_mode`, `tag`,
+   `direction`, `ban_order`, `ban_withdraw`, `agent_id`, `type`,
+   `register_time`, `first_login_time`, `first_login_ip`,
+   `last_login_time`, `last_login_ip`)
+VALUES
+  (3, 'testip01',
+   '$2a$10$8CGLirIc/m4siGu4V47N9eRqlYLkueB4NJfuEqKuvteqs68s6ck62',
+   '$2a$10$TPlABaZR73F2aiBudvc2YOhKJDdaapAB484THZ0BORp6xDCmnbmte',
+   'SUPER01', 1, 5000.00, 0.00, '100|1', 2, '蓝随机', '涨', 0, 0, 1, '会员',
+   '2026-10-20 10:42:08',
+   '2026-10-20 10:42:08', '2409:40e0:1021:e559:8000::, 104.22.14.8',
+   '2026-10-20 11:55:09', '2409:40e0:1021:e559:8000::, 162.159.98.90')
+ON DUPLICATE KEY UPDATE
+  `password_hash`    = VALUES(`password_hash`),
+  `fund_password`    = VALUES(`fund_password`),
+  `register_time`    = VALUES(`register_time`),
+  `first_login_time` = VALUES(`first_login_time`),
+  `first_login_ip`   = VALUES(`first_login_ip`),
+  `last_login_time`  = VALUES(`last_login_time`),
+  `last_login_ip`    = VALUES(`last_login_ip`);
+
+-- ============================================
 -- 给 z123 加一个 USDT-TRC20 测试钱包
 -- ============================================
 INSERT INTO `digital_wallets`

@@ -2210,11 +2210,11 @@ function EditMemberModal({ member, onClose, onSave }: {
                     paddingTop: 10, borderTop: "1px solid #f0f0f0",
                   }}>登录信息</div>
                   <div style={{
-                    display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 16, rowGap: 6,
+                    display: "flex", flexDirection: "column", gap: 6,
                   }}>
                     <InfoRow label="首次注册时间" value={fmtDateTime(member.first_login_time)} />
-                    <InfoRow label="最后登录时间" value={fmtDateTime(member.last_login_time)} />
                     <InfoRow label="首次注册地址" value={member.first_login_ip || "—"} mono />
+                    <InfoRow label="最后登录时间" value={fmtDateTime(member.last_login_time)} />
                     <InfoRow label="最后登录地址" value={member.last_login_ip || "—"} mono />
                   </div>
                 </div>
