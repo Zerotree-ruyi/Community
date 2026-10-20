@@ -2210,36 +2210,12 @@ function EditMemberModal({ member, onClose, onSave }: {
                     paddingTop: 10, borderTop: "1px solid #f0f0f0",
                   }}>登录信息</div>
                   <div style={{
-                    display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 16, rowGap: 14,
+                    display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 16, rowGap: 6,
                   }}>
-                    <Field label="首次登录时间">
-                      <input
-                        value={fmtDateTime(member.first_login_time)}
-                        readOnly
-                        style={readOnlyStyle}
-                      />
-                    </Field>
-                    <Field label="最后登录时间">
-                      <input
-                        value={fmtDateTime(member.last_login_time)}
-                        readOnly
-                        style={readOnlyStyle}
-                      />
-                    </Field>
-                    <Field label="公网 IP">
-                      <input
-                        value={member.last_login_ip || "—"}
-                        readOnly
-                        style={readOnlyStyle}
-                      />
-                    </Field>
-                    <Field label="注册时间">
-                      <input
-                        value={fmtDateTime(member.register_time)}
-                        readOnly
-                        style={readOnlyStyle}
-                      />
-                    </Field>
+                    <InfoRow label="首次注册时间" value={fmtDateTime(member.first_login_time)} />
+                    <InfoRow label="最后登录时间" value={fmtDateTime(member.last_login_time)} />
+                    <InfoRow label="首次注册地址" value={member.first_login_ip || "—"} mono />
+                    <InfoRow label="最后登录地址" value={member.last_login_ip || "—"} mono />
                   </div>
                 </div>
               </div>
@@ -2331,6 +2307,24 @@ function inputStyle(err: boolean): CSSProperties {
     outline: "none", boxSizing: "border-box",
     background: "white",
   };
+}
+
+/** 只读信息行 — "标签: 值" 格式,IP 用等宽字体 */
+function InfoRow({ label, value, mono = false }: {
+  label: string; value: string; mono?: boolean;
+}) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "baseline", gap: 8,
+      fontSize: 13, lineHeight: "20px", minWidth: 0,
+    }}>
+      <span style={{ color: "#888", flexShrink: 0 }}>{label}:</span>
+      <span style={{
+        color: "#333", wordBreak: "break-all",
+        fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : undefined,
+      }}>{value}</span>
+    </div>
+  );
 }
 
 function DigitalWalletPage() {
