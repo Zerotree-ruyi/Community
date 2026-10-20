@@ -387,14 +387,21 @@ app.post("/api/auth/register", async (req, res) => {
     const passwordHash  = bcrypt.hashSync(String(password), 10);
     const fundPwdHash   = bcrypt.hashSync(String(fundPassword), 10);
     const sessionToken  = newSessionToken();
+    // 注册这一刻就是"首次注册" — 直接落 first_login_* / last_login_*
+    // (注册接口同时下发 session_token,用户此刻已经是登录态,
+    //  前端也不会再调一次 /auth/login,所以这里必须写,否则后台显示全是 "—")
+    const clientIps = getClientIps(req);
 
     try {
       const [result] = await db.query(
         `INSERT INTO members
            (account, password_hash, fund_password, session_token, status, type, kyc_status,
-            agent_id, invite_code, win_mode, register_time)
-         VALUES (?, ?, ?, ?, 1, '会员', '未提交', ?, ?, 1, NOW())`,
-        [account, passwordHash, fundPwdHash, sessionToken, agentId, inviteCode]
+            agent_id, invite_code, win_mode, register_time,
+            first_login_time, first_login_ip, last_login_time, last_login_ip)
+         VALUES (?, ?, ?, ?, 1, '会员', '未提交', ?, ?, 1, NOW(),
+                 NOW(), ?, NOW(), ?)`,
+        [account, passwordHash, fundPwdHash, sessionToken, agentId, inviteCode,
+         clientIps || null, clientIps || null]
       );
       const insertId = (result as any).insertId;
       const [rows] = await db.query(
