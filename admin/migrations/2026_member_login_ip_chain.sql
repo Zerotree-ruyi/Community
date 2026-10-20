@@ -8,12 +8,29 @@
 --       45 会被截断
 --
 -- 幂等:列已存在就跳过,加宽用 MODIFY 重复执行无副作用。
+-- 顺序无关:本文件自己保证 first_login_time 存在(不依赖别的迁移先跑)。
 --
 -- 用法:
 --   mysql -uroot -p zero < migrations/2026_member_login_ip_chain.sql
 -- ============================================
 
--- 1) 加 first_login_ip
+-- 1) 确保 first_login_time 存在(不依赖 2026_member_first_login.sql 先跑)
+SET @col := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+   WHERE TABLE_SCHEMA = DATABASE()
+     AND TABLE_NAME   = 'members'
+     AND COLUMN_NAME  = 'first_login_time'
+);
+
+SET @sql := IF(@col = 0,
+  'ALTER TABLE `members` ADD COLUMN `first_login_time` DATETIME DEFAULT NULL COMMENT ''首次注册时间'' AFTER `register_time`',
+  'DO 0');
+
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 2) 加 first_login_ip
 SET @col := (
   SELECT COUNT(*) FROM information_schema.COLUMNS
    WHERE TABLE_SCHEMA = DATABASE()
@@ -29,12 +46,14 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- 2) last_login_ip 加宽到 255
+-- 3) last_login_ip 加宽到 255
 ALTER TABLE `members`
   MODIFY COLUMN `last_login_ip` VARCHAR(255) DEFAULT NULL COMMENT '最后登录地址';
 
--- 3) 历史会员:有首次登录时间但没记录过 IP 的,先用最后登录 IP 兜底
+-- 4) 历史会员:有首次登录时间但没记录过 IP 的,先用最后登录 IP 兜底
 UPDATE `members`
    SET `first_login_ip` = `last_login_ip`
  WHERE `first_login_ip` IS NULL
    AND `last_login_ip` IS NOT NULL;
+
+-- 5) 历史会员:连最后登录 IP 都没有的,首次 IP 留 NULL(后台显示 "—")
