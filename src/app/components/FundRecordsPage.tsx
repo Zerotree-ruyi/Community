@@ -44,6 +44,8 @@ function fmt(n: number | string): string {
 }
 
 // DB type string → i18n key
+//   注意:default 必须回落到通用 key,不能回落到原始值 ——
+//   DB 里存的是中文 type,直接显示会漏中文到前台
 function typeKey(type: string): string {
   switch (type) {
     case '后台充值':   return 'recharge';
@@ -53,7 +55,9 @@ function typeKey(type: string): string {
     case '会员下单':   return 'order';   // 兼容旧数据
     case '订单结算':   return 'settle';
     case '下推盈利':   return 'profit';
-    default:           return type;  // 未知类型直接显示原值
+    case '后台冻结':   return 'freeze';
+    case '后台解冻':   return 'unfreeze';
+    default:           return 'other';  // 未知类型 → 通用英文标签
   }
 }
 

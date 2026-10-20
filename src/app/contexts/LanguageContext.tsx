@@ -574,6 +574,9 @@ const translations: Record<Language, any> = {
         order:    'Order',
         settle:   'Order Settlement',
         profit:   'Profit Push',
+        freeze:   'Admin Freeze',
+        unfreeze: 'Admin Unfreeze',
+        other:    'Other',
       },
     },
     loginPassword: {
@@ -652,7 +655,7 @@ const translations: Record<Language, any> = {
     language: {
       title: 'Select Language',
       en: 'English',
-      ja: '日語',
+      ja: 'Japanese',
       th: 'ไทย',
       vi: 'Tiếng Việt',
       id: 'Bahasa Indonesia',
@@ -1579,6 +1582,9 @@ const translations: Record<Language, any> = {
         order:    'คำสั่งซื้อ',
         settle:   'การชำระคำสั่งซื้อ',
         profit:   'กำไร',
+        freeze:   'อายัดแช่แข็งโดยแอดมิน',
+        unfreeze: 'ปลดล็อกโดยแอดมิน',
+        other:    'อื่นๆ',
       },
     },
     loginPassword: {

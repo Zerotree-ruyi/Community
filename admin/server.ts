@@ -143,6 +143,14 @@ function getClientIps(req: any): string {
   return ip.replace(/^::ffff:/i, "");
 }
 
+// 提现方式(中文) → 英文 — 拼进 fund_records.notes 的文本要全英文,
+//   notes 会直接显示在前台的资金记录页
+function withdrawalTypeEn(t: string): string {
+  if (t === "数字币") return "Crypto";
+  if (t === "银行卡") return "Bank Card";
+  return t;
+}
+
 // 简单 IP 地理归属识别(本地 / 内网 / 公网) — 没有真 GeoIP,做粗略判断
 function ipRegion(ip: string): string {
   if (!ip) return "未知";
@@ -1557,7 +1565,8 @@ app.get("/api/members/:id", async (req, res) => {
       `SELECT id, account, nickname, phone, email, gender, remark,
               status, balance, frozen, credit, win_mode, tag, direction,
               ban_order, ban_withdraw, agent_id, invite_code, type,
-              kyc_status, register_time, last_login_time, last_login_ip,
+              kyc_status, register_time, first_login_time, first_login_ip,
+              last_login_time, last_login_ip,
               fund_password IS NOT NULL AS has_fund_password
          FROM members WHERE id = ?`,
       [memberId]
@@ -1649,7 +1658,8 @@ app.put("/api/members/:id", async (req, res) => {
       `SELECT id, account, nickname, phone, email, gender, remark,
               status, balance, frozen, credit, win_mode, tag, direction,
               ban_order, ban_withdraw, agent_id, invite_code, type,
-              kyc_status, register_time, last_login_time, last_login_ip
+              kyc_status, register_time, first_login_time, first_login_ip,
+              last_login_time, last_login_ip
          FROM members WHERE id = ?`,
       [memberId]
     );
@@ -1871,7 +1881,7 @@ app.post("/api/withdrawals", async (req, res) => {
     if (balance < amount) {
       await conn.rollback();
       return res.status(400).json({ error: "insufficient_balance",
-        message: `余额不足,当前 ${balance.toFixed(2)}` });
+        message: `Insufficient balance. Current balance: ${balance.toFixed(2)}` });
     }
 
     // 2) 加载 wallet 取快照
@@ -2008,7 +2018,7 @@ app.post("/api/withdrawals/:id/approve", async (req, res) => {
         m.agent_id, m.invite_code, m.id,
         newBalance, -amount, newBalance,
         "会员提现",
-        `Withdrawal#${w.id} ${w.type} request:${amount} fee:${fee} paid:${actAmt}`,
+        `Withdrawal#${w.id} ${withdrawalTypeEn(String(w.type))} request:${amount} fee:${fee} paid:${actAmt}`,
       ]
     );
 
@@ -3259,7 +3269,7 @@ app.post("/api/orders", async (req, res) => {
     const balance = Number(m.balance);
     if (balance < amount) {
       await conn.rollback();
-      return res.status(400).json({ error: "insufficient_balance", message: `余额不足,当前 ${balance.toFixed(2)}` });
+      return res.status(400).json({ error: "insufficient_balance", message: `Insufficient balance. Current balance: ${balance.toFixed(2)}` });
     }
 
     // 扣下单金额 — 只动 balance,不动 frozen

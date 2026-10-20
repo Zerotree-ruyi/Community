@@ -135,6 +135,7 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
     已退款: 'text-gray-400 bg-gray-400/10',
   };
   // 中文状态 → 英文显示(后端 DB 仍存中文,只换显示层)
+  //   兜底不能回落到原值 —— 那是中文,会漏到前台
   const statusLabel: Record<string, string> = {
     申请中: 'Pending',
     已同意: 'Approved',
@@ -167,7 +168,7 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
           <div className="text-xs text-gray-500">{fmtDateTime(w.apply_time)}</div>
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-xs ${statusStyle[w.status] || 'text-gray-400'}`}>
-          {statusLabel[w.status] || w.status}
+          {statusLabel[w.status] || 'Unknown'}
         </span>
       </div>
 
@@ -175,7 +176,7 @@ function WithdrawalCard({ w }: { w: Withdrawal }) {
       {w.type && (
         <div className="mb-2 text-xs">
           <span className="text-gray-500">Type: </span>
-          <span className="text-gray-200">{typeLabel[w.type] || w.type}</span>
+          <span className="text-gray-200">{typeLabel[w.type] || 'Other'}</span>
         </div>
       )}
 
