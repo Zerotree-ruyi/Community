@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { directionText } from './OrderCard';
+import { displayCoinName } from '../data/marketConfig';
 
 interface Order {
   id: number;
@@ -105,7 +106,7 @@ export function OrderDetailPage() {
     return '';
   };
 
-  const baseCoin = order ? order.symbol.replace(/USDT$/, '') : '';
+  const baseCoin = order ? displayCoinName(order.symbol) : '';
   const resultText = order
     ? (order.status === '持仓中' ? t('orders.status.pending')
         : order.status === '已平仓' ? t('orders.win')

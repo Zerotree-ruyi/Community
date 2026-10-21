@@ -39,3 +39,27 @@ export const MARKET_COINS: MarketCoin[] = [
   { symbol: 'BINANCE:FILUSDT',   name: 'Filecoin',         pair: 'USDT', glyph: 'F', color: 'bg-blue-500',   key: 'FIL'  },
   { symbol: 'BINANCE:SUIUSDT',   name: 'Sui',              pair: 'USDT', glyph: 'S', color: 'bg-cyan-500',   key: 'SUI'  },
 ];
+
+/**
+ * 交易对 → 前台显示的币种名
+ *
+ * 为什么要这个函数:
+ *   BINANCE:APTUSDT 这个 pair 在平台上对外叫 "BTG"(重命名),
+ *   但 API / URL / DB 里存的 symbol 一直是 "APTUSDT"。
+ *   所以凡是显示币种的地方都必须走这个函数 —— 否则会出现
+ *   "下单页写 BTG、订单页写 APT" 的不一致。
+ *
+ * 用法:
+ *   displayCoinName('APTUSDT') → 'BTG'
+ *   displayCoinName('BTCUSDT') → 'BTC'
+ *   displayCoinName('FOO/USDT') → 'FOO'
+ */
+export function displayCoinName(symbol: string | null | undefined): string {
+  const s = String(symbol ?? '').toUpperCase().replace(/\/.*$/, '').trim();
+  if (!s) return '';
+  const base = s.replace(/USDT$/, '');
+  const coin = MARKET_COINS.find(c => c.symbol === `BINANCE:${base}USDT`);
+  if (!coin) return base;
+  // APT 这个 pair 对外叫 BTG,其余用简称(key)
+  return coin.key === 'APT' ? coin.name : coin.key;
+}

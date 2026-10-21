@@ -1,11 +1,11 @@
 import { ArrowLeft, ArrowUp, ArrowDown, Star, Menu, X, ChevronUp, ChevronDown, AlertCircle, ShieldOff } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { ProductListSidebar } from './ProductListSidebar';
 import { KLineChart } from './KLineChart';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { MARKET_COINS, MarketCoin } from '../data/marketConfig';
+import { displayCoinName } from '../data/marketConfig';
 
 // 周期选项 (时间 + 收益率 — 写死对应关系,选周期即定收益率)
 const PERIODS: { duration: string; returnRate: string; value: number }[] = [
@@ -147,18 +147,10 @@ export function TradingPage() {
     ? (amountNum * (1 + selectedReturnRate / 100)).toFixed(2)
     : '--';
 
-  const baseCoin = tradingSymbol.replace(/USDT$/, '');
-
-  // 显示名称 — 从 MARKET_COINS 找映射(同名替换 e.g. APT → Bitcoin Gold)
-  const displayCoin = useMemo(() => {
-    return (MARKET_COINS as MarketCoin[]).find(
-      c => c.symbol === `BINANCE:${tradingSymbol}`
-    );
-  }, [tradingSymbol]);
-  const displayShort = displayCoin?.key || baseCoin;
-  const displayFull = displayCoin?.name || baseCoin;
-  // Header 显示:其它币种用简称 key,APT 特殊用全称 name(=BTG)
-  const displayHeader = displayCoin?.key === 'APT' ? displayFull : displayShort;
+  // 显示名称 — 统一走 displayCoinName(APT 这个 pair 对外叫 BTG)
+  //   Header / 抽屉标题 / 币种行 / 订单页 必须一致,
+  //   否则会出现"下单页写 BTG、订单页写 APT"
+  const displayHeader = displayCoinName(tradingSymbol);
   const currentReturn = `${selectedReturnRate}%`;
 
   // 提交订单
@@ -362,7 +354,7 @@ export function TradingPage() {
                 <div className="py-2.5 text-center">{t('trading.amount')}</div>
               </div>
               <div className="grid grid-cols-3 bg-[#0a0e13] text-white text-sm">
-                <div className="py-3 text-center font-medium">{baseCoin}</div>
+                <div className="py-3 text-center font-medium">{displayHeader}</div>
                 <div className="py-3 text-center">{currentPrice}</div>
                 <div className="py-3 text-center text-gray-400">{orderAmount || '--'}</div>
               </div>

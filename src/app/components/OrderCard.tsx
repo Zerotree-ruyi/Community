@@ -1,6 +1,7 @@
 import { ChevronRight, Copy, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
+import { displayCoinName } from '../data/marketConfig';
 
 /**
  * 订单卡片数据接口 — 接收动态数据
@@ -77,11 +78,6 @@ export function formatOrderId(id: number): string {
   return `B1000000${s}`;
 }
 
-/** 拆出基础币:BTCUSDT → BTC */
-function splitBase(symbol: string): string {
-  return symbol.replace(/USDT$/i, '').replace(/\/.*$/, '');
-}
-
 /**
  * 方向文案 — 与交易页按钮保持一致(Buy up / Buy Down)
  * DB 里存的是中文 '涨' / '跌',接口也可能回 'up' / 'down'
@@ -106,7 +102,7 @@ export function OrderCard({ order, onClick, onCopy, copiedId = null }: OrderCard
   const navigate = useNavigate();
   const { t } = useLanguage();
 
-  const baseCoin    = splitBase(order.symbol);
+  const baseCoin    = displayCoinName(order.symbol);
   const currency    = `${baseCoin}/USDT`;
   const orderId     = order.formattedOrderId ?? formatOrderId(order.id);
   const amount      = fmtAmount(order.amount);
