@@ -89,6 +89,20 @@ function fmtNum(n: number) {
 }
 
 /**
+ * 自动轮询刷新
+ *   客户在前台加卡/提现后,后台不用切页面就能看到新数据。
+ *   fn 放进 ref,保证定时器不会因为组件重渲染而重建。
+ */
+function useAutoRefresh(fn: () => void, ms = 5000) {
+  const ref = useRef(fn);
+  ref.current = fn;
+  useEffect(() => {
+    const t = setInterval(() => ref.current(), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+}
+
+/**
  * 金额显示 —— 不用千分位逗号,固定两位小数
  *   1008    → "1008.00"
  *   5000.5  → "5000.50"
@@ -615,8 +629,8 @@ function MembersPage() {
     }
   };
 
-  const load = useCallback(async () => {
-    setLoading(true); setErrMsg(null);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) { setLoading(true); setErrMsg(null); }
     try {
       const r = await api.members({
         limit: pageSize,
@@ -649,13 +663,15 @@ function MembersPage() {
       setBanOrderMode(prev => ({ ...banOrderMap, ...prev }));
       setBanWithdrawMode(prev => ({ ...banWithdrawMap, ...prev }));
     } catch (e: any) {
-      setErrMsg(e.message);
+      if (!silent) setErrMsg(e.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [page, pageSize, statusF, typeF, kycF, keyword]);
 
   useEffect(() => { load(); }, [load]);
+  // 客户在前台注册后自动刷新,不用切页面
+  useAutoRefresh(() => { load(true); });
 
   // 防抖搜索
   const [kwInput, setKwInput] = useState("");
@@ -2395,8 +2411,8 @@ function DigitalWalletPage() {
   const [type1, setType1] = useState("");
   const [editing, setEditing] = useState<DigitalWalletRow | null>(null);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reload = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params: any = { limit: 500 };
       if (member.trim()) params.member_account = member.trim();
@@ -2405,10 +2421,12 @@ function DigitalWalletPage() {
       setRows(filtered);
       setTotal(filtered.length);
     } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [member, type1]);
 
   useEffect(() => { reload(); }, [reload]);
+  // 客户在前台加/删钱包后自动刷新,不用切页面
+  useAutoRefresh(() => { reload(true); });
 
   const onDelete = async (row: DigitalWalletRow) => {
     if (!window.confirm(
@@ -2441,7 +2459,7 @@ function DigitalWalletPage() {
         <span className="filter-label">会员账号：</span>
         <input className="filter-input" style={{ width: 140 }} placeholder="会员账号"
           value={member} onChange={(e) => setMember(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setPage(1); }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
         <span className="filter-label">币种：</span>
         <select className="filter-select" value={type1} onChange={(e) => { setType1(e.target.value); setPage(1); }}>
           <option value="">全部</option>
@@ -2449,7 +2467,7 @@ function DigitalWalletPage() {
           <option value="BTC">BTC</option>
           <option value="ETH">ETH</option>
         </select>
-        <button className="btn btn-primary" onClick={() => setPage(1)}>🔍 搜索</button>
+        <button className="btn btn-primary" onClick={() => { setPage(1); reload(); }}>🔍 搜索</button>
         <button className="btn btn-warning" onClick={reset}>↺ 重置</button>
       </div>
       <div className="table-card">
@@ -2563,8 +2581,8 @@ function BankWalletPage() {
   const [bankName, setBankName] = useState("");
   const [editing, setEditing] = useState<BankWalletRow | null>(null);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reload = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params: any = { limit: 500 };
       if (member.trim()) params.member_account = member.trim();
@@ -2574,10 +2592,12 @@ function BankWalletPage() {
         : res.data;
       setRows(filtered);
     } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [member, bankName]);
 
   useEffect(() => { reload(); }, [reload]);
+  // 客户在前台加/删银行卡后自动刷新,不用切页面
+  useAutoRefresh(() => { reload(true); });
 
   const onDelete = async (row: BankWalletRow) => {
     if (!window.confirm(
@@ -2609,12 +2629,12 @@ function BankWalletPage() {
         <span className="filter-label">会员账号：</span>
         <input className="filter-input" style={{ width: 140 }} placeholder="会员账号"
           value={member} onChange={(e) => setMember(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setPage(1); }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
         <span className="filter-label">银行名称：</span>
         <input className="filter-input" style={{ width: 140 }} placeholder="模糊匹配"
           value={bankName} onChange={(e) => setBankName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setPage(1); }} />
-        <button className="btn btn-primary" onClick={() => setPage(1)}>🔍 搜索</button>
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
+        <button className="btn btn-primary" onClick={() => { setPage(1); reload(); }}>🔍 搜索</button>
         <button className="btn btn-warning" onClick={reset}>↺ 重置</button>
       </div>
       <div className="table-card">
@@ -3233,8 +3253,8 @@ function WithdrawListPage() {
   const [rejectNote, setRejectNote] = useState("");
   const [acting, setActing] = useState(false);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reload = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params: any = { limit: perPage, offset: (page - 1) * perPage };
       if (filterStatus) params.status = filterStatus;
@@ -3249,11 +3269,13 @@ function WithdrawListPage() {
     } catch (e) {
       console.error("加载提现列表失败", e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [perPage, page, filterStatus, filterType, filterMember]);
 
   useEffect(() => { reload(); }, [reload]);
+  // 客户在前台提交提现后自动刷新,不用切页面
+  useAutoRefresh(() => { reload(true); });
 
   const reset = () => { setFilterStatus(""); setFilterType(""); setFilterMember(""); setPage(1); };
 
@@ -3344,7 +3366,7 @@ function WithdrawListPage() {
           <option value="已拒绝">已拒绝</option>
           <option value="已退款">已退款</option>
         </select>
-        <button className="btn btn-primary" onClick={() => setPage(1)}>🔍 搜索</button>
+        <button className="btn btn-primary" onClick={() => { setPage(1); reload(); }}>🔍 搜索</button>
         <button className="btn btn-warning" onClick={reset}>↺ 重置</button>
       </div>
       <div className="table-card">
@@ -3835,8 +3857,8 @@ function OrderListPage() {
   const [startTime, setStartTime]   = useState("");
   const [endTime, setEndTime]       = useState("");
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reload = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params: any = { limit: perPage, offset: (page - 1) * perPage };
       if (orderId.trim() && /^\d+$/.test(orderId.trim()))  params.order_id       = Number(orderId.trim());
@@ -3852,10 +3874,12 @@ function OrderListPage() {
       setRows(res.data || []);
       setTotal(res.total ?? 0);
     } catch (e) { console.error("加载订单列表失败", e); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [perPage, page, orderId, memberAcct, agentId, invite, symbol, status, direction, startTime, endTime]);
 
   useEffect(() => { reload(); }, [reload]);
+  // 客户在前台下单后自动刷新,不用切页面
+  useAutoRefresh(() => { reload(true); });
 
   const reset = () => {
     setOrderId(""); setMemberAcct(""); setAgentId(""); setInvite("");
@@ -3871,19 +3895,19 @@ function OrderListPage() {
       <div className="filter-bar">
         <input className="filter-input" style={{ width: 100 }} placeholder="订单编号"
           value={orderId} onChange={(e) => setOrderId(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setPage(1); }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
         <input className="filter-input" style={{ width: 130 }} placeholder="会员账号"
           value={memberAcct} onChange={(e) => setMemberAcct(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setPage(1); }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
         <input className="filter-input" style={{ width: 80 }} placeholder="总代ID"
           value={agentId} onChange={(e) => setAgentId(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setPage(1); }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
         <input className="filter-input" style={{ width: 100 }} placeholder="邀请码"
           value={invite} onChange={(e) => setInvite(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setPage(1); }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
         <input className="filter-input" style={{ width: 100 }} placeholder="币种 (BTCUSDT)"
           value={symbol} onChange={(e) => setSymbol(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setPage(1); }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
         <span className="filter-label">状态:</span>
         <select className="filter-select" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
           <option value="">全部</option>
@@ -3901,7 +3925,7 @@ function OrderListPage() {
           value={startTime} onChange={(e) => setStartTime(e.target.value)} />
         <input className="filter-input" type="datetime-local" style={{ width: 170 }} placeholder="结束时间"
           value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-        <button className="btn btn-primary" onClick={() => setPage(1)}>🔍 搜索</button>
+        <button className="btn btn-primary" onClick={() => { setPage(1); reload(); }}>🔍 搜索</button>
         <button className="btn btn-warning" onClick={reset}>↺ 重置</button>
       </div>
 
