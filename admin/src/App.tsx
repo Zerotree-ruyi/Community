@@ -3439,7 +3439,7 @@ function WithdrawListPage() {
               )}
             </div>
             <WalletField label="实付金额 *" value={approved} onChange={setApproved} type="number" placeholder="可调整(默认等于申请金额)" />
-            <WalletField label="Admin Note" value={approveNote} onChange={setApproveNote} placeholder="Optional" textarea />
+            <WalletField label="管理员备注" value={approveNote} onChange={setApproveNote} placeholder="可选" textarea />
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn" onClick={() => setApproveFor(null)} disabled={acting}>取消</button>
               <button className="btn btn-primary" onClick={submitApprove} disabled={acting}>
@@ -3487,11 +3487,11 @@ function WithdrawListPage() {
                 label="自定义拒绝原因 *"
                 value={rejectReasonCustom}
                 onChange={setRejectReasonCustom}
-                placeholder="Please write in English — this is shown to the user"
+                placeholder="请填写英文 — 此内容会显示给用户"
                 textarea
               />
             )}
-            <WalletField label="Admin Note" value={rejectNote} onChange={setRejectNote} placeholder="Optional, internal only — not shown to the user" textarea />
+            <WalletField label="管理员备注" value={rejectNote} onChange={setRejectNote} placeholder="可选,仅后台可见,不会显示给用户" textarea />
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn" onClick={() => setRejectFor(null)} disabled={acting}>取消</button>
               <button className="btn btn-danger" onClick={submitReject} disabled={acting}>
@@ -5021,7 +5021,7 @@ function EditEmployeeModal({ employee, onClose, onSaved, onError }: {
             <input
               value={newNote}
               onChange={(e) => setNewNote(e.target.value)}
-              placeholder="Remark (Optional)"
+              placeholder="备注(可选)"
               maxLength={128}
               style={{
                 flex: 1, padding: 7, border: "1px solid #ddd",
