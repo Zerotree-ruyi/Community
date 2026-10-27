@@ -3532,23 +3532,24 @@ function maskCard(no: string) {
 /**
  * 钱包快照查看弹窗 — 提现列表里点 📄 打开
  *   内容是"标签 - 值"的整块文本,复制按钮一次复制全部(方便粘到银行后台)
+ *   ⚠ 标签用英文:这段文字会被复制到银行/交易所的后台表单里,
+ *     那边是英文界面,中文标签粘过去认不出来
  */
 function WalletSnapshotModal({ w, onClose }: { w: Withdrawal; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
-  // 组装成 "标签 - 值" 的纯文本块
+  // 组装成 "Label - Value" 的纯文本块(全英文)
   const lines: string[] = [];
   if (w.wallet_type === "bank") {
-    if (w.snap_bank_name)    lines.push(`银行 - ${w.snap_bank_name}`);
-    if (w.snap_branch)       lines.push(`开户支行 - ${w.snap_branch}`);
-    if (w.snap_holder)       lines.push(`户名 - ${w.snap_holder}`);
-    if (w.snap_card_no)      lines.push(`卡号 - ${w.snap_card_no}`);
-    if (w.snap_ifsc)         lines.push(`IFSC 代码 - ${w.snap_ifsc}`);
-    if (w.snap_id_number)    lines.push(`身份证 - ${w.snap_id_number}`);
+    if (w.snap_bank_name) lines.push(`Bank - ${w.snap_bank_name}`);
+    if (w.snap_branch)    lines.push(`Branch - ${w.snap_branch}`);
+    if (w.snap_holder)    lines.push(`Name - ${w.snap_holder}`);
+    if (w.snap_card_no)   lines.push(`A/C No. - ${w.snap_card_no}`);
+    if (w.snap_ifsc)      lines.push(`IFSC Code - ${w.snap_ifsc}`);
   } else if (w.wallet_type === "digital") {
-    if (w.snap_coin_type)    lines.push(`币种 - ${w.snap_coin_type}`);
-    if (w.snap_network)      lines.push(`网络 - ${w.snap_network}`);
-    if (w.snap_address)      lines.push(`地址 - ${w.snap_address}`);
+    if (w.snap_coin_type) lines.push(`Coin - ${w.snap_coin_type}`);
+    if (w.snap_network)   lines.push(`Network - ${w.snap_network}`);
+    if (w.snap_address)   lines.push(`Address - ${w.snap_address}`);
   }
   const block = lines.join("\n");
 
