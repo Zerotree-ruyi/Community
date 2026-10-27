@@ -89,6 +89,39 @@ function fmtNum(n: number) {
 }
 
 /**
+ * 金额显示 —— 不用千分位逗号,固定两位小数
+ *   1008    → "1008.00"
+ *   5000.5  → "5000.50"
+ */
+function fmtAmount(n: number | string | null | undefined): string {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "0.00";
+  return v.toFixed(2);
+}
+
+/**
+ * 金额输入框的初始值 —— 去掉 DB 里 DECIMAL(20,8) 的尾随 0
+ *   "500.00000000" → "500"
+ *   "12.50000000"  → "12.5"
+ */
+function fmtAmountInput(n: number | string | null | undefined): string {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "";
+  return String(parseFloat(v.toFixed(8)));
+}
+
+/**
+ * 价格显示 —— 不用千分位,保留原始精度
+ *   88648.92 → "88648.92"
+ *   0.12     → "0.12"
+ */
+function fmtPrice(n: number | string | null | undefined): string {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "0";
+  return String(parseFloat(v.toFixed(8)));
+}
+
+/**
  * 时间格式化 — MySQL DATETIME 经 driver 转成 ISO 串(或 Date 对象)
  * 输出 "YYYY-MM-DD HH:mm:ss",空值显示 "—"
  */
@@ -325,7 +358,7 @@ function HomePage({ onNavigate }: { onNavigate: (p: Page) => void }) {
     icon: w.status === "申请中" ? "💸" : w.status === "已同意" ? "✅" : "❌",
     color: w.status === "申请中" ? "red" : w.status === "已同意" ? "green" : "orange",
     title: `提现申请 #${w.id}`,
-    meta: `会员 #${w.member_id} · ₹ ${fmtNum(w.amount)} · ${w.status}`,
+    meta: `会员 #${w.member_id} · ₹ ${fmtAmount(w.amount)} · ${w.status}`,
     time: w.apply_time.split(" ")[1] ?? w.apply_time,
   }));
 
@@ -398,7 +431,7 @@ function HomePage({ onNavigate }: { onNavigate: (p: Page) => void }) {
                   <tr key={p.id}>
                     <td className="num-cell" style={{ color: "#888" }}>#{p.id}</td>
                     <td className="link-cell">#{p.member_id}</td>
-                    <td className="num-cell">₹ {fmtNum(p.amount)}</td>
+                    <td className="num-cell">₹ {fmtAmount(p.amount)}</td>
                     <td><Badge label={p.type} color="blue" /></td>
                     <td><Badge label={p.status} color={withdrawStatusColor[p.status]} /></td>
                     <td style={{ color: "#999", fontSize: 12 }}>{p.apply_time}</td>
@@ -804,7 +837,7 @@ function MembersPage() {
                     title="点击编辑该会员"
                   >{m.account}</td>
                   <td><Toggle value={m.status === 1} onClick={() => toggleStatus(m)} /></td>
-                  <td className="num-cell">{fmtNum(Number(m.balance))} | {fmtNum(Number(m.frozen))}</td>
+                  <td className="num-cell">{fmtAmount(m.balance)} | {fmtAmount(m.frozen)}</td>
                   <td>{(() => { const p = String(m.credit || "").split("|"); return `${p[0] || 0} | V${p[1] || 0}`; })()}</td>
                   <td>
                     <ToggleCell
@@ -3110,10 +3143,10 @@ function ReportInOutPage() {
                         <Badge label={r.type} color={isOut ? "orange" : "blue"} />
                       </td>
                       <td className={isOut ? "isNeg" : "isPos"} style={{ fontWeight: 600 }}>
-                        {isOut ? "-" : "+"}{fmtNum(Math.abs(Number(r.amount)))}
+                        {isOut ? "-" : "+"}{fmtAmount(Math.abs(Number(r.amount)))}
                       </td>
                       <td style={{ color: "#888", fontSize: 13 }}>
-                        {fmtNum(r.before)} → {fmtNum(r.after)}
+                        {fmtAmount(r.before)} → {fmtAmount(r.after)}
                       </td>
                       <td style={{ color: "#888", fontSize: 14, maxWidth: 220 }}>{r.notes || "-"}</td>
                       <td style={{ color: "#888", fontSize: 13 }}>{r.time}</td>
@@ -3226,7 +3259,7 @@ function WithdrawListPage() {
 
   const openApprove = (w: Withdrawal) => {
     setApproveFor(w);
-    setApproved(String(w.amount));
+    setApproved(fmtAmountInput(w.amount));
     setApproveNote("");
   };
   const openReject = (w: Withdrawal) => {
@@ -3344,9 +3377,9 @@ function WithdrawListPage() {
                   </td>
                   <td><Badge label={w.status} color={withdrawStatusColor[w.status] || "gray"} /></td>
                   <td className="num-cell">
-                    <div>申请 {fmtNum(w.amount)}</div>
-                    <div style={{ color: "#4caf50" }}>实付 {fmtNum(w.actual_amount ?? w.approved)}</div>
-                    <div style={{ color: "#888", fontSize: 11 }}>手续费 {fmtNum(w.fee)}</div>
+                    <div>申请 {fmtAmount(w.amount)}</div>
+                    <div style={{ color: "#4caf50" }}>实付 {fmtAmount(w.actual_amount ?? w.approved)}</div>
+                    <div style={{ color: "#888", fontSize: 11 }}>手续费 {fmtAmount(w.fee)}</div>
                   </td>
                   <td style={{ fontSize: 12, maxWidth: 320 }}>
                     <Badge label={w.type} color={w.type === "数字币" ? "purple" : "black"} />
@@ -3411,7 +3444,7 @@ function WithdrawListPage() {
           <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: "0 0 16px" }}>同意提现 #{approveFor.id}</h3>
             <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>
-              会员: <strong>{approveFor.member_account || `#${approveFor.member_id}`}</strong> · 申请金额 {fmtNum(approveFor.amount)}
+              会员: <strong>{approveFor.member_account || `#${approveFor.member_id}`}</strong> · 申请金额 {fmtAmount(approveFor.amount)}
             </div>
             {/* 打款信息 — 同意前要照着这个实际付款,所以给一个查看快照的入口 */}
             <div style={{
@@ -3444,7 +3477,7 @@ function WithdrawListPage() {
           <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: "0 0 16px", color: "#f44336" }}>拒绝提现 #{rejectFor.id}</h3>
             <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>
-              会员: <strong>{rejectFor.member_account || `#${rejectFor.member_id}`}</strong> · 金额 {fmtNum(rejectFor.amount)} 将退回余额
+              会员: <strong>{rejectFor.member_account || `#${rejectFor.member_id}`}</strong> · 金额 {fmtAmount(rejectFor.amount)} 将退回余额
             </div>
             {/* 拒绝原因 — 用户可见,必须是英文,所以给预设选项 */}
             <div style={{ marginBottom: 12 }}>
@@ -3750,11 +3783,11 @@ function FundDetailsPage() {
                     <td style={{ color: "#888" }}>{f.agent_id}</td>
                     <td style={{ color: "#888" }}>{f.invite_code}</td>
                     <td className="link-cell">{f.member_id} / {f.member_account || "—"}</td>
-                    <td className="num-cell">{fmtNum(Number(f.before))}</td>
+                    <td className="num-cell">{fmtAmount(f.before)}</td>
                     <td className={`num-cell ${isPos ? "pos" : "neg"}`}>
-                      {isPos ? `+${fmtNum(amt)}` : fmtNum(amt)}
+                      {isPos ? `+${fmtAmount(amt)}` : fmtAmount(amt)}
                     </td>
-                    <td className="num-cell">{fmtNum(Number(f.after))}</td>
+                    <td className="num-cell">{fmtAmount(f.after)}</td>
                     <td><Badge label={f.type} color={fundTypeColor[f.type] || "gray"} /></td>
                     <td style={{ color: "#888", fontSize: 12 }}>{(f.time || "").replace("T", " ").slice(0, 19)}</td>
                     <td style={{ color: "#999", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{f.notes}</td>
@@ -3764,7 +3797,7 @@ function FundDetailsPage() {
               <tr className="total-row">
                 <td colSpan={5} style={{ fontWeight: 700, color: "#d46b08" }}>合计</td>
                 <td className="num-cell" style={{ color: "#d46b08", fontWeight: 700 }}>
-                  {fmtNum(Number(sum))}
+                  {fmtAmount(sum)}
                 </td>
                 <td colSpan={4}></td>
               </tr>
@@ -3910,8 +3943,8 @@ function OrderListPage() {
                     </td>
                     <td><Badge label={o.symbol} color="blue" /></td>
                     <td className="num-cell" style={{ fontSize: 12 }}>
-                      <div>{fmtNum(o.open_price)}</div>
-                      {o.close_price != null && <div style={{ color: "#888" }}>{fmtNum(o.close_price)}</div>}
+                      <div>{fmtPrice(o.open_price)}</div>
+                      {o.close_price != null && <div style={{ color: "#888" }}>{fmtPrice(o.close_price)}</div>}
                     </td>
                     <td style={{ color: "#888", fontSize: 11 }}>
                       <div>{o.open_time}</div>
@@ -3922,10 +3955,10 @@ function OrderListPage() {
                       <div style={{ color: "#888" }}>赔率 {o.return_rate ?? "-"}%</div>
                     </td>
                     <td className="num-cell" style={{ fontSize: 12 }}>
-                      <div>投注 {fmtNum(o.amount)}</div>
+                      <div>投注 {fmtAmount(o.amount)}</div>
                       {o.status === "已平仓" && (
                         <div style={{ color: isWin ? "#4caf50" : isLose ? "#f44336" : "#888" }}>
-                          {isWin ? "+" : ""}{fmtNum(o.profit)}
+                          {isWin ? "+" : ""}{fmtAmount(o.profit)}
                         </div>
                       )}
                     </td>
@@ -3957,9 +3990,9 @@ function OrderListPage() {
         <div style={{ padding: "12px 16px", borderTop: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "#666" }}>
           <div>
             共 <strong style={{ color: "#333" }}>{total}</strong> 条 · 本页
-            <strong style={{ color: "#4caf50" }}> {fmtNum(sumAmount)} </strong>
+            <strong style={{ color: "#4caf50" }}> {fmtAmount(sumAmount)} </strong>
             投注 ·
-            <strong style={{ color: sumProfit >= 0 ? "#4caf50" : "#f44336" }}> {fmtNum(sumProfit)} </strong>
+            <strong style={{ color: sumProfit >= 0 ? "#4caf50" : "#f44336" }}> {fmtAmount(sumProfit)} </strong>
             盈利
           </div>
           <Pagination
