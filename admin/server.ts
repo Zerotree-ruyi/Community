@@ -233,6 +233,9 @@ const RE_PASSWORD   = /^.{6,64}$/;
 // 资金密码:前端也用 safePwd 混淆,提币时把用户的 6 位 PIN 转成 14 位 base62 提交
 // (屏蔽 Chrome 的密码泄露警告 — 浏览器看到的始终是 14 位强密码)
 const RE_FUND_PWD   = /^[A-Za-z0-9]{14}$/;
+
+// 添加数字钱包所需的最低 VIP 等级(credit 字段格式 "score|vip_level")
+const DIGITAL_WALLET_MIN_VIP = 5;
 const RE_INVITE     = /^.{1,32}$/;
 
 // 服务端 safePwd — 必须与前端 src/app/utils/safePwd.ts 保持一致!
@@ -2434,6 +2437,18 @@ app.post("/api/members/:id/wallets/digital", async (req, res) => {
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
   const access = await requireMemberAccess(req, res, memberId);
   if (!access) return;
+
+  // 添加数字钱包要 VIP5 —— 前端也会拦,这里是后端兜底(防绕过)
+  //   credit 存的是 "score|vip_level",取后半段
+  const [vipRows] = await db.query(
+    `SELECT credit FROM members WHERE id = ? LIMIT 1`,
+    [memberId]
+  );
+  const vipLevel = Number(String((vipRows as any[])[0]?.credit ?? "0|1").split("|")[1] ?? 1) || 1;
+  if (vipLevel < DIGITAL_WALLET_MIN_VIP) {
+    return res.status(403).json({ error: "vip_required",
+      message: `VIP ${DIGITAL_WALLET_MIN_VIP} required to add a crypto wallet. Your current level is VIP ${vipLevel}.` });
+  }
 
   const type1     = ["USDT","BTC","ETH"].includes(req.body?.type1) ? req.body.type1 : null;
   const type2     = String(req.body?.type2 ?? "").slice(0, 32).trim();

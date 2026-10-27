@@ -13,6 +13,9 @@ type Tab = "bank" | "digital";
 type BankDraft = Omit<BankWallet, "id" | "member_id" | "created_at">;
 type DigitalDraft = Omit<DigitalWallet, "id" | "member_id" | "created_at">;
 
+/** 添加数字钱包所需的最低 VIP 等级 */
+const DIGITAL_WALLET_MIN_VIP = 5;
+
 export function MyWalletsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -49,8 +52,23 @@ export function MyWalletsPage() {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // VIP 等级 —— 后端把 credit 存成 "score|vip_level"
+  const vipLevel = (() => {
+    const parts = String(user?.credit ?? "0|1").split("|");
+    return Number(parts[1] ?? 1) || 1;
+  })();
+  // 添加数字钱包要 VIP5,银行卡不受限
+  const digitalAddBlocked = tab === "digital" && vipLevel < DIGITAL_WALLET_MIN_VIP;
+
   // 打开新增/编辑模态框
-  const openAdd = () => { setEditing({ kind: tab, id: null }); setModalOpen(true); };
+  const openAdd = () => {
+    if (digitalAddBlocked) {
+      showToast("err", `VIP ${DIGITAL_WALLET_MIN_VIP} required to add a crypto wallet. Your current level is VIP ${vipLevel}.`);
+      return;
+    }
+    setEditing({ kind: tab, id: null });
+    setModalOpen(true);
+  };
   const openEdit = (id: number) => { setEditing({ kind: tab, id }); setModalOpen(true); };
 
   const onDelete = async (id: number) => {
@@ -127,10 +145,19 @@ export function MyWalletsPage() {
       </div>
 
       {/* 添加按钮 */}
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex justify-end items-center gap-3">
+        {digitalAddBlocked && (
+          <span className="text-xs text-amber-300">
+            🔒 Requires VIP {DIGITAL_WALLET_MIN_VIP} (your level: VIP {vipLevel})
+          </span>
+        )}
         <button
           onClick={openAdd}
-          className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400"
+          className={`rounded-md px-4 py-2 text-sm font-semibold ${
+            digitalAddBlocked
+              ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+              : "bg-amber-500 text-black hover:bg-amber-400"
+          }`}
         >
           + Add {tab === "bank" ? "Bank Card" : "Crypto Wallet"}
         </button>
@@ -174,6 +201,7 @@ export function MyWalletsPage() {
           kind={editing.kind}
           id={editing.id}
           userId={user.id}
+          vipLevel={vipLevel}
           onClose={() => setModalOpen(false)}
           onSaved={() => { setModalOpen(false); reload(); }}
           showToast={showToast}
@@ -263,9 +291,9 @@ function DigitalCard({
 
 // ─── 模态框 ──────────────────────────────────────────────────────────────────
 function WalletEditModal({
-  kind, id, userId, onClose, onSaved, showToast,
+  kind, id, userId, vipLevel, onClose, onSaved, showToast,
 }: {
-  kind: Tab; id: number | null; userId: number;
+  kind: Tab; id: number | null; userId: number; vipLevel: number;
   onClose: () => void; onSaved: () => void;
   showToast: (t: "ok" | "err", m: string) => void;
 }) {
@@ -346,6 +374,12 @@ function WalletEditModal({
           await api.createBankWallet(userId, payload);
         }
       } else {
+        // 添加数字钱包要 VIP5 —— 后端也会校验,这里先拦一道给出明确提示
+        if (!isEdit && vipLevel < DIGITAL_WALLET_MIN_VIP) {
+          throw new Error(
+            `VIP ${DIGITAL_WALLET_MIN_VIP} required to add a crypto wallet. Your current level is VIP ${vipLevel}.`
+          );
+        }
         if (!address.trim()) throw new Error("Wallet address is required");
         const payload: DigitalDraft = {
           type1:      coinType,
