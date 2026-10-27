@@ -3591,16 +3591,16 @@ function WalletSnapshotModal({ w, onClose }: { w: Withdrawal; onClose: () => voi
           </span>
         </div>
 
-        {/* 内容 */}
-        <div style={{ padding: 16, flex: 1, minHeight: 180 }}>
+        {/* 内容 — 复制按钮放在信息块的右边(不是下面) */}
+        <div style={{ padding: 16, flex: 1, minHeight: 180, display: "flex", gap: 12, alignItems: "stretch" }}>
           {lines.length === 0 ? (
-            <div style={{ color: "#999", fontSize: 14 }}>没有钱包快照信息</div>
+            <div style={{ color: "#999", fontSize: 14, flex: 1 }}>没有钱包快照信息</div>
           ) : (
             <textarea
               readOnly
               value={block}
               style={{
-                width: "100%", minHeight: 180, padding: 12,
+                flex: 1, minWidth: 0, minHeight: 180, padding: 12,
                 border: "1px solid #d9d9d9", borderRadius: 4,
                 fontSize: 14, lineHeight: 1.9, color: "#333",
                 outline: "none", resize: "vertical",
@@ -3609,6 +3609,14 @@ function WalletSnapshotModal({ w, onClose }: { w: Withdrawal; onClose: () => voi
               }}
             />
           )}
+          <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start" }}>
+            <button
+              className="btn btn-primary"
+              onClick={copyAll}
+              disabled={lines.length === 0}
+              style={{ whiteSpace: "nowrap" }}
+            >{copied ? "✓ 已复制" : "复制"}</button>
+          </div>
         </div>
 
         {/* 底部按钮 */}
@@ -3616,11 +3624,6 @@ function WalletSnapshotModal({ w, onClose }: { w: Withdrawal; onClose: () => voi
           padding: "12px 16px", borderTop: "1px solid #e8e8e8", background: "#fafafa",
           display: "flex", justifyContent: "flex-end", gap: 10,
         }}>
-          <button
-            className="btn btn-primary"
-            onClick={copyAll}
-            disabled={lines.length === 0}
-          >{copied ? "✓ 已复制" : "复制"}</button>
           <button className="btn" onClick={onClose}>关闭</button>
         </div>
       </div>
