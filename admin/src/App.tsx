@@ -305,7 +305,7 @@ function HomePage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         { icon: "⬇",  label: "充值列表", page: "recharge-list",
           badge: stats?.todayRecharge ? fmtNum(stats.todayRecharge) : undefined,
           badgeKind: "success" },
-        { icon: "📊", label: "Fund Details", page: "fund-details" },
+        { icon: "📊", label: "资金明细", page: "fund-details" },
         { icon: "📈", label: "出入款报表", page: "report-inout" },
       ],
     },
@@ -3951,10 +3951,10 @@ const menuConfig: MenuGroup[] = [
   { key: "funds", label: "资金管理", icon: "💰", children: [
     { key: "recharge-list", label: "充值列表" },
     { key: "withdraw-list", label: "提现列表" },
-    { key: "fund-details",  label: "Fund Details" },
+    { key: "fund-details",  label: "资金明细" },
   ]},
-  { key: "orders", label: "Order List", icon: "📋", page: "order-list" },
-  { key: "support-links", label: "Support Links", icon: "💬", page: "support-links" },
+  { key: "orders", label: "订单列表", icon: "📋", page: "order-list" },
+  { key: "support-links", label: "客服链接", icon: "💬", page: "support-links" },
 ];
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -4078,7 +4078,7 @@ const pageLabels: Record<Page, string> = {
   home: "首页", members: "会员列表", "digital-wallet": "数字钱包",
   "bank-wallet": "银行钱包", messages: "站内消息", "report-inout": "出款入款",
   "recharge-list": "充值列表", "withdraw-list": "提现列表",
-  "fund-details": "Fund Details", "order-list": "订单管理",
+  "fund-details": "资金明细", "order-list": "订单列表",
   employees: "员工管理",
   profile: "个人中心",
 };
