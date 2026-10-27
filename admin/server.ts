@@ -2200,6 +2200,84 @@ app.get("/api/wallets/bank", async (req, res) => {
   }
 });
 
+// ─── 后台删除钱包(强制) ──────────────────────────────────────────────────────
+//  用户端删除会被"被在途提现引用"拦住(见 DELETE /api/members/:id/wallets/...)。
+//  后台是运营方,需要能强制清理客户遗留的卡,所以这里不检查提现引用:
+//  提现单里存的是 snap_* 快照,删卡不影响已提交的提现信息。
+app.delete("/api/wallets/bank/:wid", async (req, res) => {
+  const wid = Number(req.params.wid);
+  if (!Number.isFinite(wid) || wid <= 0) return res.status(400).json({ error: "invalid_id" });
+  const [rows] = await db.query(
+    `SELECT b.*, m.account AS member_account FROM bank_wallets b
+       LEFT JOIN members m ON m.id = b.member_id
+      WHERE b.id = ? LIMIT 1`,
+    [wid]
+  );
+  const w = (rows as any[])[0];
+  if (!w) return res.status(404).json({ error: "not_found", message: "Card does not exist" });
+  // 数据归属校验
+  const access = await requireMemberAccess(req, res, Number(w.member_id));
+  if (!access) return;
+
+  // 有多少笔提现引用了这张卡(只提示,不影响删除)
+  const [refRows] = await db.query(
+    `SELECT COUNT(*) AS cnt FROM withdrawals
+      WHERE wallet_type = 'bank' AND wallet_id = ? AND status IN ('申请中','已同意')`,
+    [wid]
+  );
+  const refCount = Number((refRows as any[])[0]?.cnt || 0);
+
+  await db.query(`DELETE FROM bank_wallets WHERE id = ?`, [wid]);
+
+  const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
+  const adminId = await lookupAdminId(reviewer);
+  await db.query(
+    `INSERT INTO admin_logs (admin_id, admin_name, action, target_id, details, time)
+     VALUES (?, ?, ?, ?, ?, NOW())`,
+    [adminId, reviewer, "delete_bank_wallet", wid,
+      JSON.stringify({ member_id: w.member_id, member_account: w.member_account,
+                       bank_name: w.bank_name, card_no: w.card_no,
+                       ref_withdrawals: refCount }).slice(0, 240)]
+  );
+  res.json({ ok: true, id: wid, ref_withdrawals: refCount });
+});
+
+app.delete("/api/wallets/digital/:wid", async (req, res) => {
+  const wid = Number(req.params.wid);
+  if (!Number.isFinite(wid) || wid <= 0) return res.status(400).json({ error: "invalid_id" });
+  const [rows] = await db.query(
+    `SELECT d.*, m.account AS member_account FROM digital_wallets d
+       LEFT JOIN members m ON m.id = d.member_id
+      WHERE d.id = ? LIMIT 1`,
+    [wid]
+  );
+  const w = (rows as any[])[0];
+  if (!w) return res.status(404).json({ error: "not_found", message: "Wallet does not exist" });
+  const access = await requireMemberAccess(req, res, Number(w.member_id));
+  if (!access) return;
+
+  const [refRows] = await db.query(
+    `SELECT COUNT(*) AS cnt FROM withdrawals
+      WHERE wallet_type = 'digital' AND wallet_id = ? AND status IN ('申请中','已同意')`,
+    [wid]
+  );
+  const refCount = Number((refRows as any[])[0]?.cnt || 0);
+
+  await db.query(`DELETE FROM digital_wallets WHERE id = ?`, [wid]);
+
+  const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
+  const adminId = await lookupAdminId(reviewer);
+  await db.query(
+    `INSERT INTO admin_logs (admin_id, admin_name, action, target_id, details, time)
+     VALUES (?, ?, ?, ?, ?, NOW())`,
+    [adminId, reviewer, "delete_digital_wallet", wid,
+      JSON.stringify({ member_id: w.member_id, member_account: w.member_account,
+                       coin: w.type1, address: w.address,
+                       ref_withdrawals: refCount }).slice(0, 240)]
+  );
+  res.json({ ok: true, id: wid, ref_withdrawals: refCount });
+});
+
 // ─── Per-member wallet CRUD (用户端) ─────────────────────────────────────────
 // 列出某用户的所有银行卡
 app.get("/api/members/:id/wallets/bank", async (req, res) => {

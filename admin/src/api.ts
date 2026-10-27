@@ -373,6 +373,17 @@ export const api = {
     return request<{ data: DigitalWalletRow[]; total: number; limit: number; offset: number }>(`/wallets/digital${qs}`);
   },
 
+  // 后台强制删除钱包(不受"被在途提现引用"的限制)
+  deleteBankWallet: (id: number) =>
+    request<{ ok: boolean; id: number; ref_withdrawals: number }>(
+      `/wallets/bank/${id}`, { method: "DELETE", body: JSON.stringify({ reviewer: "admin" }) }
+    ),
+
+  deleteDigitalWallet: (id: number) =>
+    request<{ ok: boolean; id: number; ref_withdrawals: number }>(
+      `/wallets/digital/${id}`, { method: "DELETE", body: JSON.stringify({ reviewer: "admin" }) }
+    ),
+
   // 员工 IP 白名单 CRUD(super 专属)
   listEmployeeIpRules: (employeeId: number) =>
     request<{ data: IpRule[] }>(`/admin/employees/${employeeId}/ip-rules`),

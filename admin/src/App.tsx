@@ -2377,6 +2377,26 @@ function DigitalWalletPage() {
 
   useEffect(() => { reload(); }, [reload]);
 
+  const onDelete = async (row: DigitalWalletRow) => {
+    if (!window.confirm(
+      `确定要删除 ${row.member_account || `#${row.member_id}`} 的数字币钱包吗?\n\n` +
+      `币种: ${row.type1} (${row.type2})\n地址: ${row.address}\n\n` +
+      `删除后客户前台将不再显示这个钱包,无法撤销。`
+    )) return;
+    try {
+      const r = await api.deleteDigitalWallet(row.id);
+      alert(
+        `已删除钱包 #${row.id}` +
+        (r.ref_withdrawals > 0
+          ? `\n\n注意:有 ${r.ref_withdrawals} 笔在途/已同意的提现引用了这个钱包。\n提现单里存的是申请时的快照,付款信息不受影响。`
+          : "")
+      );
+      reload();
+    } catch (e: any) {
+      alert("删除失败: " + (e?.message || e));
+    }
+  };
+
   const start = (page - 1) * perPage;
   const paged = rows.slice(start, start + perPage);
 
@@ -2434,7 +2454,12 @@ function DigitalWalletPage() {
                   <td>{d.is_default === 1 ? <Badge label="默认" color="gold" /> : <span style={{ color: "#999" }}>-</span>}</td>
                   <td style={{ color: "#999", fontSize: 12 }}>{d.notes}</td>
                   <td style={{ color: "#888", fontSize: 11 }}>{d.created_at}</td>
-                  <td><ActBtn label="✎ 编辑" color="teal" onClick={() => setEditing(d)} /></td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <ActBtn label="✎ 编辑" color="teal" onClick={() => setEditing(d)} />
+                      <ActBtn label="🗑 删除" color="red" onClick={() => onDelete(d)} />
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2521,6 +2546,26 @@ function BankWalletPage() {
 
   useEffect(() => { reload(); }, [reload]);
 
+  const onDelete = async (row: BankWalletRow) => {
+    if (!window.confirm(
+      `确定要删除 ${row.member_account || `#${row.member_id}`} 的银行卡吗?\n\n` +
+      `银行: ${row.bank_name}\n卡号: ${row.card_no}\n持卡人: ${row.holder}\n\n` +
+      `删除后客户前台将不再显示这张卡,无法撤销。`
+    )) return;
+    try {
+      const r = await api.deleteBankWallet(row.id);
+      alert(
+        `已删除银行卡 #${row.id}` +
+        (r.ref_withdrawals > 0
+          ? `\n\n注意:有 ${r.ref_withdrawals} 笔在途/已同意的提现引用了这张卡。\n提现单里存的是申请时的快照,付款信息不受影响。`
+          : "")
+      );
+      reload();
+    } catch (e: any) {
+      alert("删除失败: " + (e?.message || e));
+    }
+  };
+
   const start = (page - 1) * perPage;
   const paged = rows.slice(start, start + perPage);
   const reset = () => { setMember(""); setBankName(""); setPage(1); };
@@ -2576,7 +2621,12 @@ function BankWalletPage() {
                   <td style={{ color: "#1890ff", fontSize: 12 }}>{b.contact}</td>
                   <td>{b.is_default === 1 ? <Badge label="默认" color="gold" /> : <span style={{ color: "#999" }}>-</span>}</td>
                   <td style={{ color: "#999", fontSize: 12 }}>{b.notes}</td>
-                  <td><ActBtn label="✎ 编辑" color="teal" onClick={() => setEditing(b)} /></td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <ActBtn label="✎ 编辑" color="teal" onClick={() => setEditing(b)} />
+                      <ActBtn label="🗑 删除" color="red" onClick={() => onDelete(b)} />
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -3298,21 +3348,20 @@ function WithdrawListPage() {
                   </td>
                   <td style={{ fontSize: 12, maxWidth: 320 }}>
                     <Badge label={w.type} color={w.type === "数字币" ? "purple" : "black"} />
-                    <div style={{ marginTop: 4, color: "#bbb", lineHeight: 1.5 }}>
+                    <div style={{ marginTop: 4, color: "#bbb", lineHeight: 1.6 }}>
                       {w.wallet_type === "bank" ? (
                         <>
+                          {/* 付款信息要照着打款 —— 显示完整原文,不做脱敏 */}
                           <div>🏦 {w.snap_bank_name} {w.snap_branch && `(${w.snap_branch})`}</div>
-                          <div>卡号: {w.snap_card_no ? maskCard(w.snap_card_no) : "-"}</div>
-                          <div>持卡人: {w.snap_holder}</div>
-                          {w.snap_ifsc && <div>IFSC: {w.snap_ifsc}</div>}
-                          {w.snap_id_number && <div>身份证: {maskId(w.snap_id_number)}</div>}
+                          <CopyField label="持卡人" value={w.snap_holder} mono={false} />
+                          <CopyField label="卡号" value={w.snap_card_no} />
+                          <CopyField label="IFSC" value={w.snap_ifsc} />
+                          {w.snap_id_number && <div style={{ color: "#888" }}>身份证: {maskId(w.snap_id_number)}</div>}
                         </>
                       ) : w.wallet_type === "digital" ? (
                         <>
                           <div>💎 {w.snap_coin_type} ({w.snap_network})</div>
-                          <div style={{ fontFamily: "monospace", wordBreak: "break-all" }}>
-                            {w.snap_address ? maskAddr(w.snap_address) : "-"}
-                          </div>
+                          <CopyField label="地址" value={w.snap_address} />
                         </>
                       ) : (
                         <span style={{ color: "#666" }}>-</span>
@@ -3365,6 +3414,29 @@ function WithdrawListPage() {
             <h3 style={{ margin: "0 0 16px" }}>同意提现 #{approveFor.id}</h3>
             <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>
               会员: <strong>{approveFor.member_account || `#${approveFor.member_id}`}</strong> · 申请金额 {fmtNum(approveFor.amount)}
+            </div>
+            {/* 打款信息 — 同意前要照着这个实际付款,所以显示完整原文 */}
+            <div style={{
+              background: "#fafafa", border: "1px solid #e8e8e8", borderRadius: 6,
+              padding: "10px 12px", marginBottom: 12,
+              fontSize: 13, lineHeight: 1.8, color: "#333",
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 4, color: "#666" }}>💸 打款信息</div>
+              {approveFor.wallet_type === "bank" ? (
+                <>
+                  <div>🏦 {approveFor.snap_bank_name} {approveFor.snap_branch && `(${approveFor.snap_branch})`}</div>
+                  <CopyField label="持卡人" value={approveFor.snap_holder} mono={false} />
+                  <CopyField label="卡号" value={approveFor.snap_card_no} />
+                  <CopyField label="IFSC" value={approveFor.snap_ifsc} />
+                </>
+              ) : approveFor.wallet_type === "digital" ? (
+                <>
+                  <div>💎 {approveFor.snap_coin_type} ({approveFor.snap_network})</div>
+                  <CopyField label="地址" value={approveFor.snap_address} />
+                </>
+              ) : (
+                <span style={{ color: "#999" }}>无钱包快照</span>
+              )}
             </div>
             <WalletField label="实付金额 *" value={approved} onChange={setApproved} type="number" placeholder="可调整(默认等于申请金额)" />
             <WalletField label="Admin Note" value={approveNote} onChange={setApproveNote} placeholder="Optional" textarea />
@@ -3467,6 +3539,50 @@ function WalletField({
 function maskCard(no: string) {
   if (!no || no.length <= 8) return no;
   return no.slice(0, 4) + " **** **** " + no.slice(-4);
+}
+
+/**
+ * 可一键复制的字段 — 后台要照着这个值实际打款,
+ * 所以显示完整原文(不脱敏),旁边给个复制按钮
+ */
+function CopyField({ label, value, mono = true }: { label: string; value?: string | null; mono?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // clipboard API 不可用(非 HTTPS / 权限)→ 退回 execCommand
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch { /* 忽略 */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ color: "#888" }}>{label}:</span>
+      <span style={{
+        color: "#fff", fontFamily: mono ? "monospace" : undefined,
+        wordBreak: "break-all", userSelect: "all",
+      }}>{value}</span>
+      <button
+        onClick={copy}
+        title={`复制${label}`}
+        style={{
+          border: "1px solid #444", background: "transparent", color: copied ? "#73d13d" : "#999",
+          borderRadius: 3, fontSize: 11, padding: "1px 6px", cursor: "pointer",
+          flexShrink: 0, minWidth: 34,
+        }}
+      >{copied ? "✓ 已复制" : "复制"}</button>
+    </div>
+  );
 }
 function maskId(id: string) {
   if (!id || id.length < 8) return id;
@@ -5173,7 +5289,7 @@ function AdminShell({ user, onLogout }: {
       {/* Footer */}
       <footer className="admin-footer">
         <span>{clockStr}</span>
-        <span>copyright 2026 皮总团队交易所 reserved revision beta 1.0 release 2026/04/30</span>
+        <span>版权所有 © 2026 皮总团队交易所 · 版本 beta 1.0 · 发布日期 2026/04/30</span>
       </footer>
     </div>
   );
