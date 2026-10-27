@@ -3191,6 +3191,8 @@ function WithdrawListPage() {
   // 模态框
   const [approveFor, setApproveFor] = useState<Withdrawal | null>(null);
   const [rejectFor, setRejectFor] = useState<Withdrawal | null>(null);
+  // 钱包快照查看弹窗(列表里点 📄)
+  const [snapshotFor, setSnapshotFor] = useState<Withdrawal | null>(null);
   const [approved, setApproved] = useState("");
   const [approveNote, setApproveNote] = useState("");
   const [rejectReasonPreset, setRejectReasonPreset] = useState("");
@@ -3348,24 +3350,15 @@ function WithdrawListPage() {
                   </td>
                   <td style={{ fontSize: 12, maxWidth: 320 }}>
                     <Badge label={w.type} color={w.type === "数字币" ? "purple" : "black"} />
-                    <div style={{ marginTop: 4, color: "#bbb", lineHeight: 1.6 }}>
-                      {w.wallet_type === "bank" ? (
-                        <>
-                          {/* 付款信息要照着打款 —— 显示完整原文,不做脱敏 */}
-                          <div>🏦 {w.snap_bank_name} {w.snap_branch && `(${w.snap_branch})`}</div>
-                          <CopyField label="持卡人" value={w.snap_holder} mono={false} />
-                          <CopyField label="卡号" value={w.snap_card_no} />
-                          <CopyField label="IFSC" value={w.snap_ifsc} />
-                          {w.snap_id_number && <div style={{ color: "#888" }}>身份证: {maskId(w.snap_id_number)}</div>}
-                        </>
-                      ) : w.wallet_type === "digital" ? (
-                        <>
-                          <div>💎 {w.snap_coin_type} ({w.snap_network})</div>
-                          <CopyField label="地址" value={w.snap_address} />
-                        </>
-                      ) : (
-                        <span style={{ color: "#666" }}>-</span>
-                      )}
+                    <div style={{ marginTop: 6 }}>
+                      <button
+                        onClick={() => setSnapshotFor(w)}
+                        title="查看钱包快照"
+                        style={{
+                          border: "1px solid #d9d9d9", background: "#fff", borderRadius: 4,
+                          padding: "2px 7px", cursor: "pointer", fontSize: 13, lineHeight: "18px",
+                        }}
+                      >📄</button>
                     </div>
                   </td>
                   <td style={{ color: "#888", fontSize: 12 }}>
@@ -3408,6 +3401,11 @@ function WithdrawListPage() {
       </div>
 
       {/* 同意模态框 */}
+      {/* 钱包快照查看弹窗 */}
+      {snapshotFor && (
+        <WalletSnapshotModal w={snapshotFor} onClose={() => setSnapshotFor(null)} />
+      )}
+
       {approveFor && (
         <div style={modalBackdropStyle} onClick={() => !acting && setApproveFor(null)}>
           <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
@@ -3415,28 +3413,18 @@ function WithdrawListPage() {
             <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>
               会员: <strong>{approveFor.member_account || `#${approveFor.member_id}`}</strong> · 申请金额 {fmtNum(approveFor.amount)}
             </div>
-            {/* 打款信息 — 同意前要照着这个实际付款,所以显示完整原文 */}
+            {/* 打款信息 — 同意前要照着这个实际付款,所以给一个查看快照的入口 */}
             <div style={{
               background: "#fafafa", border: "1px solid #e8e8e8", borderRadius: 6,
               padding: "10px 12px", marginBottom: 12,
-              fontSize: 13, lineHeight: 1.8, color: "#333",
+              fontSize: 13, color: "#333",
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
             }}>
-              <div style={{ fontWeight: 600, marginBottom: 4, color: "#666" }}>💸 打款信息</div>
-              {approveFor.wallet_type === "bank" ? (
-                <>
-                  <div>🏦 {approveFor.snap_bank_name} {approveFor.snap_branch && `(${approveFor.snap_branch})`}</div>
-                  <CopyField label="持卡人" value={approveFor.snap_holder} mono={false} />
-                  <CopyField label="卡号" value={approveFor.snap_card_no} />
-                  <CopyField label="IFSC" value={approveFor.snap_ifsc} />
-                </>
-              ) : approveFor.wallet_type === "digital" ? (
-                <>
-                  <div>💎 {approveFor.snap_coin_type} ({approveFor.snap_network})</div>
-                  <CopyField label="地址" value={approveFor.snap_address} />
-                </>
-              ) : (
-                <span style={{ color: "#999" }}>无钱包快照</span>
-              )}
+              <span style={{ fontWeight: 600, color: "#666" }}>💸 打款信息</span>
+              <button
+                className="btn"
+                onClick={() => setSnapshotFor(approveFor)}
+              >📄 查看钱包快照</button>
             </div>
             <WalletField label="实付金额 *" value={approved} onChange={setApproved} type="number" placeholder="可调整(默认等于申请金额)" />
             <WalletField label="管理员备注" value={approveNote} onChange={setApproveNote} placeholder="可选" textarea />
@@ -3542,19 +3530,34 @@ function maskCard(no: string) {
 }
 
 /**
- * 可一键复制的字段 — 后台要照着这个值实际打款,
- * 所以显示完整原文(不脱敏),旁边给个复制按钮
+ * 钱包快照查看弹窗 — 提现列表里点 📄 打开
+ *   内容是"标签 - 值"的整块文本,复制按钮一次复制全部(方便粘到银行后台)
  */
-function CopyField({ label, value, mono = true }: { label: string; value?: string | null; mono?: boolean }) {
+function WalletSnapshotModal({ w, onClose }: { w: Withdrawal; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
-  if (!value) return null;
-  const copy = async () => {
+
+  // 组装成 "标签 - 值" 的纯文本块
+  const lines: string[] = [];
+  if (w.wallet_type === "bank") {
+    if (w.snap_bank_name)    lines.push(`银行 - ${w.snap_bank_name}`);
+    if (w.snap_branch)       lines.push(`开户支行 - ${w.snap_branch}`);
+    if (w.snap_holder)       lines.push(`户名 - ${w.snap_holder}`);
+    if (w.snap_card_no)      lines.push(`卡号 - ${w.snap_card_no}`);
+    if (w.snap_ifsc)         lines.push(`IFSC 代码 - ${w.snap_ifsc}`);
+    if (w.snap_id_number)    lines.push(`身份证 - ${w.snap_id_number}`);
+  } else if (w.wallet_type === "digital") {
+    if (w.snap_coin_type)    lines.push(`币种 - ${w.snap_coin_type}`);
+    if (w.snap_network)      lines.push(`网络 - ${w.snap_network}`);
+    if (w.snap_address)      lines.push(`地址 - ${w.snap_address}`);
+  }
+  const block = lines.join("\n");
+
+  const copyAll = async () => {
     try {
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(block);
     } catch {
-      // clipboard API 不可用(非 HTTPS / 权限)→ 退回 execCommand
       const ta = document.createElement("textarea");
-      ta.value = value;
+      ta.value = block;
       ta.style.position = "fixed";
       ta.style.opacity = "0";
       document.body.appendChild(ta);
@@ -3565,22 +3568,61 @@ function CopyField({ label, value, mono = true }: { label: string; value?: strin
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <span style={{ color: "#888" }}>{label}:</span>
-      <span style={{
-        color: "#fff", fontFamily: mono ? "monospace" : undefined,
-        wordBreak: "break-all", userSelect: "all",
-      }}>{value}</span>
-      <button
-        onClick={copy}
-        title={`复制${label}`}
+    <div style={modalBackdropStyle} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
         style={{
-          border: "1px solid #444", background: "transparent", color: copied ? "#73d13d" : "#999",
-          borderRadius: 3, fontSize: 11, padding: "1px 6px", cursor: "pointer",
-          flexShrink: 0, minWidth: 34,
+          ...modalCardStyle, width: 520, maxWidth: "92vw",
+          display: "flex", flexDirection: "column", padding: 0, overflow: "hidden",
         }}
-      >{copied ? "✓ 已复制" : "复制"}</button>
+      >
+        {/* 标题栏 */}
+        <div style={{
+          padding: "12px 16px", borderBottom: "1px solid #e8e8e8",
+          fontSize: 15, fontWeight: 600, color: "#333",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span>查看</span>
+          <span style={{ fontSize: 13, color: "#999", fontWeight: 400 }}>
+            {w.type} · #{w.id}
+          </span>
+        </div>
+
+        {/* 内容 */}
+        <div style={{ padding: 16, flex: 1, minHeight: 180 }}>
+          {lines.length === 0 ? (
+            <div style={{ color: "#999", fontSize: 14 }}>没有钱包快照信息</div>
+          ) : (
+            <textarea
+              readOnly
+              value={block}
+              style={{
+                width: "100%", minHeight: 180, padding: 12,
+                border: "1px solid #d9d9d9", borderRadius: 4,
+                fontSize: 14, lineHeight: 1.9, color: "#333",
+                outline: "none", resize: "vertical",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                background: "#fff", boxSizing: "border-box",
+              }}
+            />
+          )}
+        </div>
+
+        {/* 底部按钮 */}
+        <div style={{
+          padding: "12px 16px", borderTop: "1px solid #e8e8e8", background: "#fafafa",
+          display: "flex", justifyContent: "flex-end", gap: 10,
+        }}>
+          <button
+            className="btn btn-primary"
+            onClick={copyAll}
+            disabled={lines.length === 0}
+          >{copied ? "✓ 已复制" : "复制"}</button>
+          <button className="btn" onClick={onClose}>关闭</button>
+        </div>
+      </div>
     </div>
   );
 }
