@@ -3539,10 +3539,9 @@ function WalletSnapshotModal({ w, onClose }: { w: Withdrawal; onClose: () => voi
   const [copied, setCopied] = useState(false);
 
   // 组装成 "Label - Value" 的纯文本块(全英文)
+  //   银行卡只要打款必需的三项:名字 / 卡号 / IFSC
   const lines: string[] = [];
   if (w.wallet_type === "bank") {
-    if (w.snap_bank_name) lines.push(`Bank - ${w.snap_bank_name}`);
-    if (w.snap_branch)    lines.push(`Branch - ${w.snap_branch}`);
     if (w.snap_holder)    lines.push(`Name - ${w.snap_holder}`);
     if (w.snap_card_no)   lines.push(`A/C No. - ${w.snap_card_no}`);
     if (w.snap_ifsc)      lines.push(`IFSC Code - ${w.snap_ifsc}`);
