@@ -43,7 +43,7 @@ export function TradingViewWidget({
       studies,                       // 数组形式放在 hash
       theme,
       style: '1',
-      timezone: 'Etc/UTC',
+      timezone: 'Asia/Kolkata',
       studies_overrides: '{}',
       hide_top_toolbar: hide_top_toolbar ? '1' : '0',
       utm_source: 'localhost',
@@ -63,7 +63,7 @@ export function TradingViewWidget({
       <iframe
         title="TradingView advanced chart"
         id="${iframeId}"
-        src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=${locale}&interval=${interval}&timezone=Etc%2FUTC&theme=${theme}&style=1&symboledit=1&saveimage=1&toolbarbg=rgba(0%2C0%2C0%2C0)&studies=${studiesParam}#${encodeURIComponent(JSON.stringify(config))}"
+        src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=${locale}&interval=${interval}&timezone=Asia%2FKolkata&theme=${theme}&style=1&symboledit=1&saveimage=1&toolbarbg=rgba(0%2C0%2C0%2C0)&studies=${studiesParam}#${encodeURIComponent(JSON.stringify(config))}"
         style="width:100%;height:100%;margin:0!important;padding:0!important;border:0;"
         allowtransparency="true"
         scrolling="no"

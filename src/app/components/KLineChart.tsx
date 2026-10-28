@@ -9,6 +9,7 @@
  * 不再依赖 s3.tradingview.com/tv.js (国内网络环境拉不到)
  */
 import { useEffect, useRef, useState } from 'react';
+import { fmtChartTick, IST_SHIFT_SEC } from '../utils/date';
 
 // 从本地 public/ 加载,不走外网 CDN(国内网络 unpkg 经常被卡,导致图表空白)
 const SCRIPT_SRC = '/lightweight-charts.standalone.production.js';
@@ -93,9 +94,12 @@ export function KLineChart({ symbol }: Props) {
       rightPriceScale: { borderColor: '#374151' },
       crosshair: { mode: lwc.CrosshairMode?.Normal ?? 0 },
       // 强制英文日期(否则跟随浏览器 locale,中文浏览器会显示 "10月15日" 之类)
+      // 日期顺序用 日/月/年("28 Oct 2026"),不是美式的 月/日/年
+      // 库的坐标轴按 UTC 画 —— 时间戳已平移到印度时区,这里直接按 UTC 部件读就是印度时间
       localization: {
         locale: 'en-US',
-        dateFormat: 'MMM dd, yyyy',
+        dateFormat: 'dd MMM yyyy',
+        timeFormatter: (t: number) => fmtChartTick(t),
       },
     });
     // 水印 (像 TradingView 的左下角标记)
@@ -137,7 +141,8 @@ export function KLineChart({ symbol }: Props) {
           const raw: any[] = await r.json();
           if (!Array.isArray(raw) || raw.length === 0) { lastErr = new Error('空数据'); continue; }
           const data = raw.map(k => ({
-            time: Math.floor(k[0] / 1000),
+            // 时间戳往前推 5.5 小时 → 坐标轴(按 UTC 画)显示的就是印度时间
+            time: Math.floor(k[0] / 1000) + IST_SHIFT_SEC,
             open:  parseFloat(k[1]),
             high:  parseFloat(k[2]),
             low:   parseFloat(k[3]),
@@ -165,7 +170,7 @@ export function KLineChart({ symbol }: Props) {
           const k = m.k;
           if (!k) return;
           series.update({
-            time: Math.floor(k.t / 1000),
+            time: Math.floor(k.t / 1000) + IST_SHIFT_SEC,
             open:  parseFloat(k.o),
             high:  parseFloat(k.h),
             low:   parseFloat(k.l),

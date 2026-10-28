@@ -33,7 +33,7 @@ const FILTERS = [
 type FilterId = typeof FILTERS[number]['id'];
 
 function fmtTime(s: string | null | undefined): string {
-  // 抽到 src/app/utils/date.ts — 输出 en-US "Oct 16, 2026, 19:35"
+  // 抽到 src/app/utils/date.ts — 印度时区 + 日/月/年 "28/10/2026 20:42"
   return fmtDateTime(s || '--');
 }
 

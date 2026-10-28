@@ -69,3 +69,29 @@ export function fmtTimeOnly(s: string | Date | null | undefined): string {
   const p = istParts(d);
   return `${p.hour}:${p.minute}`;
 }
+
+/**
+ * 印度时区与 UTC 的偏移 — 5 小时 30 分 = 19800 秒
+ *
+ * lightweight-charts 的坐标轴是按 UTC 画的(轴上 12:00 就是 UTC 12:00),
+ * 印度客户看会差 5 个半小时。
+ * 办法:喂给图表的时间戳整体加上这个偏移,
+ *      库再按 UTC 画出来 —— 显示的就是印度墙上时间。
+ */
+export const IST_SHIFT_SEC = 19800;
+
+/**
+ * K 线图十字光标上的时间(入参是"已经平移过"的时间戳)
+ *
+ * 日/月/年 顺序 —— "29 Oct 17:30",不是美式的 "Oct 29, 2026"
+ */
+export function fmtChartTick(ts: number): string {
+  const d = new Date(ts * 1000);
+  if (isNaN(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  const day = p(d.getUTCDate());
+  const hour = p(d.getUTCHours());
+  const minute = p(d.getUTCMinutes());
+  const month = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short" }).format(d);
+  return `${day} ${month} ${hour}:${minute}`;
+}
