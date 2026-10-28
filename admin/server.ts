@@ -3240,6 +3240,53 @@ app.get("/api/messages", async (req, res) => {
   }
 });
 
+// ─── 删除站内消息(管理员) ─────────────────────────────────────────────────────
+app.delete("/api/messages/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid_id", message: "无效的消息 ID" });
+    }
+
+    const me = await getCurrentAdmin(req);
+    if (!me) return deny(res, "no_admin", "未识别管理员");
+
+    const [rows] = await db.query(
+      `SELECT id, member_id, title FROM messages WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    const msg = (rows as any[])[0];
+    if (!msg) {
+      return res.status(404).json({ error: "not_found", message: "消息不存在或已被删除" });
+    }
+
+    // 归属校验:全员广播只有 super 能删;定向消息按客户归属校验
+    if (msg.member_id === null) {
+      if (me.role !== "super") {
+        return res.status(403).json({ error: "forbidden", message: "只有超级管理员可以删除全员广播" });
+      }
+    } else {
+      const access = await requireMemberAccess(req, res, Number(msg.member_id));
+      if (!access) return;
+    }
+
+    await db.query(`DELETE FROM messages WHERE id = ?`, [id]);
+
+    const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
+    const adminId = await lookupAdminId(reviewer);
+    await db.query(
+      `INSERT INTO admin_logs (admin_id, admin_name, action, target_id, details, time)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [adminId, reviewer, "delete_message", id,
+        JSON.stringify({ member_id: msg.member_id, title: msg.title }).slice(0, 240)]
+    );
+
+    res.json({ ok: true, id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Orders ───────────────────────────────────────────────────────────────────
 
 // 周期 → 收益率(和前端保持一致)

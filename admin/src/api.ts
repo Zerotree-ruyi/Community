@@ -10,7 +10,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    // 后端带了可读的中文提示就用它,方便直接弹给管理员看
+    let msg = `API ${path} failed: ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.message) msg = String(j.message);
+    } catch { /* 不是 JSON 就用默认文案 */ }
+    throw new Error(msg);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -216,6 +224,13 @@ export const api = {
       offset: number;
     }>(`/messages${qs}`);
   },
+
+  // 删除站内信
+  deleteMessage: (id: number) =>
+    request<{ ok: boolean; id: number }>(`/messages/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ reviewer: "admin" }),
+    }),
 
   withdrawals: (params?: {
     limit?: number; offset?: number;

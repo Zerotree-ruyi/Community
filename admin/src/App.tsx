@@ -4,6 +4,7 @@ import { api, type Stats, type Withdrawal, type Member, type DigitalWalletRow, t
 import { useAuth } from "./auth";
 import { LoginPage } from "./LoginPage";
 import { ProfilePage } from "./ProfilePage";
+import { TabStateProvider, useTabFilter, useTabStore } from "./tabState";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Page =
@@ -531,11 +532,11 @@ function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  // 筛选条件
-  const [keyword, setKeyword]   = useState("");
-  const [statusF, setStatusF]   = useState<string>("");   // "" | "1" | "0"
-  const [typeF, setTypeF]       = useState<string>("");   // "" | "会员" | "代理" | "管理员"
-  const [kycF, setKycF]         = useState<string>("");   // "" | "未提交" | "审核中" | "已通过" | "已拒绝"
+  // 筛选条件(记在标签页里 — 切走再切回来还在,关掉这个标签才清空)
+  const [keyword, setKeyword]   = useTabFilter<string>("members", "keyword", "");
+  const [statusF, setStatusF]   = useTabFilter<string>("members", "status", "");   // "" | "1" | "0"
+  const [typeF, setTypeF]       = useTabFilter<string>("members", "type", "");     // "" | "会员" | "代理" | "管理员"
+  const [kycF, setKycF]         = useTabFilter<string>("members", "kyc", "");       // "" | "未提交" | "审核中" | "已通过" | "已拒绝"
 
   // 分页
   const [page, setPage] = useState(1);
@@ -674,7 +675,7 @@ function MembersPage() {
   useAutoRefresh(() => { load(true); });
 
   // 防抖搜索
-  const [kwInput, setKwInput] = useState("");
+  const [kwInput, setKwInput] = useTabFilter<string>("members", "kwInput", "");
   useEffect(() => {
     const t = setTimeout(() => { setKeyword(kwInput); setPage(1); }, 400);
     return () => clearTimeout(t);
@@ -2407,8 +2408,8 @@ function DigitalWalletPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
-  const [member, setMember] = useState("");
-  const [type1, setType1] = useState("");
+  const [member, setMember] = useTabFilter<string>("digital-wallet", "member", "");
+  const [type1, setType1] = useTabFilter<string>("digital-wallet", "type1", "");
   const [editing, setEditing] = useState<DigitalWalletRow | null>(null);
 
   const reload = useCallback(async (silent = false) => {
@@ -2577,8 +2578,8 @@ function BankWalletPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
-  const [member, setMember] = useState("");
-  const [bankName, setBankName] = useState("");
+  const [member, setMember] = useTabFilter<string>("bank-wallet", "member", "");
+  const [bankName, setBankName] = useTabFilter<string>("bank-wallet", "bankName", "");
   const [editing, setEditing] = useState<BankWalletRow | null>(null);
 
   const reload = useCallback(async (silent = false) => {
@@ -2759,13 +2760,18 @@ function MessagesPage() {
   const [loading, setLoading] = useState(false);
   const [page,    setPage]    = useState(1);
   const PER_PAGE = 10;
-  const [filter, setFilter] = useState({
+  const [filter, setFilter] = useTabFilter("messages", "filter", {
     member_id: "",
     member_filter: "",
     read: "",
     keyword: "",
   });
-  const [applied, setApplied] = useState(filter);
+  const [applied, setApplied] = useTabFilter("messages", "applied", {
+    member_id: "",
+    member_filter: "",
+    read: "",
+    keyword: "",
+  });
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [toast, setToast] = useState<{ msg: string; kind: "ok" | "err" } | null>(null);
@@ -2803,6 +2809,28 @@ function MessagesPage() {
     setFilter(empty);
     setPage(1);
     setApplied(empty);
+  };
+
+  // 删除站内信 — 删了前台用户就看不到了,不可恢复
+  const onDelete = async (m: any) => {
+    const to = m.member_id
+      ? `${m.member_account || "#" + m.member_id}`
+      : "全员广播";
+    if (!window.confirm(
+      `确定要删除这条站内信吗?\n\n标题: ${m.title || "(无标题)"}\n接收人: ${to}\n\n` +
+      `删除后前台用户将看不到这条消息,无法恢复。`
+    )) return;
+    try {
+      await api.deleteMessage(m.id);
+      if (expandedId === m.id) setExpandedId(null);
+      setToast({ msg: `已删除消息 #${m.id}`, kind: "ok" });
+      // 删掉当前页最后一条时往前翻一页,避免停在空白页
+      const nextPage = rows.length === 1 && page > 1 ? page - 1 : page;
+      setPage(nextPage);
+      load(applied, nextPage);
+    } catch (e: any) {
+      setToast({ msg: "删除失败: " + (e?.message || String(e)), kind: "err" });
+    }
   };
 
   return (
@@ -2897,11 +2925,18 @@ function MessagesPage() {
                         </td>
                         <td style={{ color: "#888", fontSize: 12 }}>{m.read_time ? m.read_time.replace("T", " ").slice(0, 19) : "—"}</td>
                         <td>
-                          <ActBtn
-                            label={isOpen ? "收起" : "查看"}
-                            color="blue"
-                            onClick={() => setExpandedId(isOpen ? null : m.id)}
-                          />
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <ActBtn
+                              label={isOpen ? "收起" : "查看"}
+                              color="blue"
+                              onClick={() => setExpandedId(isOpen ? null : m.id)}
+                            />
+                            <ActBtn
+                              label="🗑 删除"
+                              color="red"
+                              onClick={() => onDelete(m)}
+                            />
+                          </div>
                         </td>
                       </tr>
                     );
@@ -2984,7 +3019,7 @@ function MessagesPage() {
 }
 
 function ReportInOutPage() {
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useTabFilter("report-inout", "filters", {
     agent_id:       "",
     invite_code:    "",
     member_account: "",
@@ -2992,7 +3027,14 @@ function ReportInOutPage() {
     start_time:     "",
     end_time:       "",
   });
-  const [applied, setApplied] = useState<typeof filters>(filters);
+  const [applied, setApplied] = useTabFilter("report-inout", "applied", {
+    agent_id:       "",
+    invite_code:    "",
+    member_account: "",
+    member_id:      "",
+    start_time:     "",
+    end_time:       "",
+  });
   const [data, setData] = useState<{
     summary: {
       total_in: number;
@@ -3236,10 +3278,10 @@ function WithdrawListPage() {
   const [perPage, setPerPage] = useState(10);
   const [loading, setLoading] = useState(false);
 
-  // 过滤条件
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterType, setFilterType] = useState("");
-  const [filterMember, setFilterMember] = useState("");
+  // 过滤条件(记在标签页里 — 切走再切回来还在,关掉这个标签才清空)
+  const [filterStatus, setFilterStatus] = useTabFilter<string>("withdraw-list", "status", "");
+  const [filterType, setFilterType] = useTabFilter<string>("withdraw-list", "type", "");
+  const [filterMember, setFilterMember] = useTabFilter<string>("withdraw-list", "member", "");
 
   // 模态框
   const [approveFor, setApproveFor] = useState<Withdrawal | null>(null);
@@ -3700,14 +3742,20 @@ function FundDetailsPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage]     = useState(1);
   const [perPage, setPerPage] = useState(50);
-  const [filter, setFilter] = useState({
+  const [filter, setFilter] = useTabFilter("fund-details", "filter", {
     member_account: "",
     member_id:      "",
     type:           "",
     start_time:     "",
     end_time:       "",
   });
-  const [applied, setApplied] = useState(filter);
+  const [applied, setApplied] = useTabFilter("fund-details", "applied", {
+    member_account: "",
+    member_id:      "",
+    type:           "",
+    start_time:     "",
+    end_time:       "",
+  });
 
   const load = async () => {
     setLoading(true);
@@ -3846,16 +3894,16 @@ function OrderListPage() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
 
-  // 过滤
-  const [orderId, setOrderId]       = useState("");
-  const [memberAcct, setMemberAcct] = useState("");
-  const [agentId, setAgentId]       = useState("");
-  const [invite, setInvite]         = useState("");
-  const [symbol, setSymbol]         = useState("");
-  const [status, setStatus]         = useState("");
-  const [direction, setDirection]   = useState("");
-  const [startTime, setStartTime]   = useState("");
-  const [endTime, setEndTime]       = useState("");
+  // 过滤(记在标签页里 — 切走再切回来还在,关掉这个标签才清空)
+  const [orderId, setOrderId]       = useTabFilter<string>("order-list", "orderId", "");
+  const [memberAcct, setMemberAcct] = useTabFilter<string>("order-list", "memberAcct", "");
+  const [agentId, setAgentId]       = useTabFilter<string>("order-list", "agentId", "");
+  const [invite, setInvite]         = useTabFilter<string>("order-list", "invite", "");
+  const [symbol, setSymbol]         = useTabFilter<string>("order-list", "symbol", "");
+  const [status, setStatus]         = useTabFilter<string>("order-list", "status", "");
+  const [direction, setDirection]   = useTabFilter<string>("order-list", "direction", "");
+  const [startTime, setStartTime]   = useTabFilter<string>("order-list", "startTime", "");
+  const [endTime, setEndTime]       = useTabFilter<string>("order-list", "endTime", "");
 
   const reload = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -5204,7 +5252,11 @@ export default function App() {
   // 未登录 → 拦截到 LoginPage
   if (!user) return <LoginPage />;
 
-  return <AdminShell user={user} onLogout={logout} />;
+  return (
+    <TabStateProvider>
+      <AdminShell user={user} onLogout={logout} />
+    </TabStateProvider>
+  );
 }
 
 function AdminShell({ user, onLogout }: {
@@ -5223,6 +5275,8 @@ function AdminShell({ user, onLogout }: {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  // 标签页记忆 —— 关掉标签时清掉该页的搜索条件
+  const tabStore = useTabStore();
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
@@ -5278,6 +5332,8 @@ function AdminShell({ user, onLogout }: {
     if (id === "home") return;
     const next = tabs.filter(t => t.id !== id);
     setTabs(next);
+    // 关掉标签 → 这个页面记住的搜索条件一起清掉(下次重新打开是干净的)
+    tabStore.clearPage(id);
     if (currentPage === id) setCurrentPage(next[next.length - 1].id);
   };
 
