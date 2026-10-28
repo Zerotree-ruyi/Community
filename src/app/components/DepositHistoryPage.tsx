@@ -2,6 +2,7 @@ import { ChevronLeft, Search, Filter } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { fmtDateTime } from '../utils/date';
 
 export function DepositHistoryPage() {
   const { t } = useLanguage();
@@ -150,7 +151,7 @@ export function DepositHistoryPage() {
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between">
                     <span className="text-gray-400">{t('depositHistory.time')}</span>
-                    <span className="text-gray-300">{deposit.time}</span>
+                    <span className="text-gray-300">{fmtDateTime(deposit.time)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-400">{t('depositHistory.txHash')}</span>

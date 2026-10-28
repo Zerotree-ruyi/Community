@@ -47,7 +47,7 @@ interface OrderCardProps {
 
 // ─── 工具函数 ──────────────────────────────────────────────────────────────
 
-/** 时间格式:2026-10-16 19:35(年月日 时:分) */
+/** 时间格式:16/10/2026 19:35(日/月/年 时:分) */
 function fmtTime(s: string | null | undefined): string {
   if (!s) return '--';
   return fmtDateTime(s);

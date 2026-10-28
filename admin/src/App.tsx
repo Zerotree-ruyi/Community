@@ -138,17 +138,63 @@ function fmtPrice(n: number | string | null | undefined): string {
 
 /**
  * 时间格式化 — MySQL DATETIME 经 driver 转成 ISO 串(或 Date 对象)
- * 输出 "YYYY-MM-DD HH:mm:ss",空值显示 "—"
+ * 统一:印度时区(Asia/Kolkata, UTC+5:30)+ 日/月/年 格式
+ *   "28/10/2026 20:42:00"(例:2026年10月28日 → 28/10/2026)
+ * 空值显示 "—"
  */
+const TZ = "Asia/Kolkata";
+
+/** 解析成 Date;没带时区的 "YYYY-MM-DD HH:mm:ss" 按 UTC 解析(后端给的就是 UTC) */
+function toDate(s: string | Date | null | undefined): Date | null {
+  if (!s) return null;
+  if (s instanceof Date) return isNaN(s.getTime()) ? null : s;
+  const raw = String(s).trim();
+  if (!raw) return null;
+  const d = new Date(raw.includes("T") ? raw : raw.replace(" ", "T") + "Z");
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** 取印度时区下的年月日时分秒 */
+function istParts(d: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const g = (t: string) => parts.find(p => p.type === t)?.value ?? "";
+  return {
+    day: g("day"), month: g("month"), year: g("year"),
+    hour: g("hour"), minute: g("minute"), second: g("second"),
+  };
+}
+
+/** "28/10/2026 20:42:00" */
 function fmtDateTime(s: string | Date | null | undefined): string {
-  if (!s) return "—";
-  const d = s instanceof Date
-    ? s
-    : new Date(String(s).includes("T") ? String(s) : String(s).replace(" ", "T") + "Z");
-  if (Number.isNaN(d.getTime())) return String(s);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
-         `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  const d = toDate(s);
+  if (!d) return typeof s === "string" && s ? s : "—";
+  const p = istParts(d);
+  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}:${p.second}`;
+}
+
+/** "28/10/2026 20:42"(不带秒) */
+function fmtDateTimeMin(s: string | Date | null | undefined): string {
+  const d = toDate(s);
+  if (!d) return typeof s === "string" && s ? s : "—";
+  const p = istParts(d);
+  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
+}
+
+/** 只要时间 — "20:42"(印度时区) */
+function fmtTimeOnly(s: string | Date | null | undefined): string {
+  const d = toDate(s);
+  if (!d) return typeof s === "string" && s ? s : "—";
+  const p = istParts(d);
+  return `${p.hour}:${p.minute}`;
 }
 
 // ─── Mini Components ──────────────────────────────────────────────────────────
@@ -323,7 +369,7 @@ function HomePage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   }, []);
 
   const now = new Date();
-  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const dateStr = fmtDateTimeMin(now);
 
   const kpis = [
     { label: "注册会员", value: stats ? fmtNum(stats.members) : "—", sub: "总会员数",       color: "blue",   icon: "👥", trend: stats ? `+${stats.todayMembers} 今日` : "加载中", trendKind: "up"   },
@@ -374,7 +420,7 @@ function HomePage({ onNavigate }: { onNavigate: (p: Page) => void }) {
     color: w.status === "申请中" ? "red" : w.status === "已同意" ? "green" : "orange",
     title: `提现申请 #${w.id}`,
     meta: `会员 #${w.member_id} · ₹ ${fmtAmount(w.amount)} · ${w.status}`,
-    time: w.apply_time.split(" ")[1] ?? w.apply_time,
+    time: fmtTimeOnly(w.apply_time),
   }));
 
   return (
@@ -449,7 +495,7 @@ function HomePage({ onNavigate }: { onNavigate: (p: Page) => void }) {
                     <td className="num-cell">₹ {fmtAmount(p.amount)}</td>
                     <td><Badge label={p.type} color="blue" /></td>
                     <td><Badge label={p.status} color={withdrawStatusColor[p.status]} /></td>
-                    <td style={{ color: "#999", fontSize: 12 }}>{p.apply_time}</td>
+                    <td style={{ color: "#999", fontSize: 12 }}>{fmtDateTime(p.apply_time)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -909,7 +955,7 @@ function MembersPage() {
                     {m.invite_code || "—"}
                   </td>
                   <td><Badge label={m.type} color="blue" /></td>
-                  <td style={{ color: "#999", fontSize: 12 }}>{(m.register_time || "").replace("T", " ").replace(/\..*$/, "")}</td>
+                  <td style={{ color: "#999", fontSize: 12 }}>{fmtDateTime(m.register_time)}</td>
                   <td>
                     <div className="action-group">
                       <ActBtn label="✉发信"     color="blue"   onClick={() => { setSendTarget(m); setSendMode("single"); }} />
@@ -2505,7 +2551,7 @@ function DigitalWalletPage() {
                   </td>
                   <td>{d.is_default === 1 ? <Badge label="默认" color="gold" /> : <span style={{ color: "#999" }}>-</span>}</td>
                   <td style={{ color: "#999", fontSize: 12 }}>{d.notes}</td>
-                  <td style={{ color: "#888", fontSize: 11 }}>{d.created_at}</td>
+                  <td style={{ color: "#888", fontSize: 11 }}>{fmtDateTime(d.created_at)}</td>
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
                       <ActBtn label="✎ 编辑" color="teal" onClick={() => setEditing(d)} />
@@ -2916,14 +2962,14 @@ function MessagesPage() {
                         <td style={{ fontWeight: 500, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {m.title || "(无标题)"}
                         </td>
-                        <td style={{ color: "#888", fontSize: 12 }}>{(m.send_time || "").replace("T", " ").slice(0, 19)}</td>
+                        <td style={{ color: "#888", fontSize: 12 }}>{fmtDateTime(m.send_time)}</td>
                         <td><Badge label={m.sender || "system"} color="blue" /></td>
                         <td>
                           {m.read_time
                             ? <Badge label="已读" color="teal" />
                             : <Badge label="未读" color="orange" />}
                         </td>
-                        <td style={{ color: "#888", fontSize: 12 }}>{m.read_time ? m.read_time.replace("T", " ").slice(0, 19) : "—"}</td>
+                        <td style={{ color: "#888", fontSize: 12 }}>{m.read_time ? fmtDateTime(m.read_time) : "—"}</td>
                         <td>
                           <div style={{ display: "flex", gap: 6 }}>
                             <ActBtn
@@ -2963,8 +3009,8 @@ function MessagesPage() {
                                 发送人: {m.sender || "system"}
                                 {m.member_id && <> · 接收人: {m.member_account || `#${m.member_id}`}</>}
                                 {!m.member_id && <> · 接收人: 全员广播</>}
-                                {" · 发送时间: "}{(m.send_time || "").replace("T", " ").slice(0, 19)}
-                                {m.read_time && <> · 阅读时间: {m.read_time.replace("T", " ").slice(0, 19)}</>}
+                                {" · 发送时间: "}{fmtDateTime(m.send_time)}
+                                {m.read_time && <> · 阅读时间: {fmtDateTime(m.read_time)}</>}
                               </div>
                             </div>
                           );
@@ -3459,8 +3505,8 @@ function WithdrawListPage() {
                     </div>
                   </td>
                   <td style={{ color: "#888", fontSize: 12 }}>
-                    {w.apply_time}
-                    {w.approve_time && <><br /><span style={{ color: "#bbb" }}>{w.approve_time}</span></>}
+                    {fmtDateTime(w.apply_time)}
+                    {w.approve_time && <><br /><span style={{ color: "#bbb" }}>{fmtDateTime(w.approve_time)}</span></>}
                   </td>
                   <td style={{ color: "#666" }}>{w.reviewer || "-"}</td>
                   <td style={{ fontSize: 12, maxWidth: 200 }}>
@@ -3859,7 +3905,7 @@ function FundDetailsPage() {
                     </td>
                     <td className="num-cell">{fmtAmount(f.after)}</td>
                     <td><Badge label={f.type} color={fundTypeColor[f.type] || "gray"} /></td>
-                    <td style={{ color: "#888", fontSize: 12 }}>{(f.time || "").replace("T", " ").slice(0, 19)}</td>
+                    <td style={{ color: "#888", fontSize: 12 }}>{fmtDateTime(f.time)}</td>
                     <td style={{ color: "#999", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{f.notes}</td>
                   </tr>
                 );
@@ -4019,8 +4065,8 @@ function OrderListPage() {
                       {o.close_price != null && <div style={{ color: "#888" }}>{fmtPrice(o.close_price)}</div>}
                     </td>
                     <td style={{ color: "#888", fontSize: 11 }}>
-                      <div>{o.open_time}</div>
-                      {o.close_time && <div style={{ color: "#bbb" }}>{o.close_time}</div>}
+                      <div>{fmtDateTime(o.open_time)}</div>
+                      {o.close_time && <div style={{ color: "#bbb" }}>{fmtDateTime(o.close_time)}</div>}
                     </td>
                     <td style={{ fontSize: 12 }}>
                       <div>{o.period || "-"}</div>
@@ -4050,7 +4096,7 @@ function OrderListPage() {
                       </span>
                     </td>
                     <td style={{ color: "#888", fontSize: 11 }}>
-                      {o.open_time}
+                      {fmtDateTime(o.open_time)}
                     </td>
                   </tr>
                 );
@@ -4643,8 +4689,8 @@ function EmployeesPage() {
                         fontSize: 12, color: "#fff", background: "#bfbfbf",
                       }}>禁用</span>}
                 </td>
-                <td style={{ color: "#888", fontSize: 12 }}>{emp.last_login_time || "—"}</td>
-                <td style={{ color: "#888", fontSize: 12 }}>{emp.created_at}</td>
+                <td style={{ color: "#888", fontSize: 12 }}>{emp.last_login_time ? fmtDateTime(emp.last_login_time) : "—"}</td>
+                <td style={{ color: "#888", fontSize: 12 }}>{fmtDateTime(emp.created_at)}</td>
                 <td>
                   {emp.role !== "super" ? (
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -5347,7 +5393,9 @@ function AdminShell({ user, onLogout }: {
     onLogout();
   };
 
+  // 顶栏时钟 — 印度时区(和列表里的时间保持一致)
   const clockStr = clock.toLocaleString("zh-CN", {
+    timeZone: TZ,
     year: "numeric", month: "long", day: "numeric",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });

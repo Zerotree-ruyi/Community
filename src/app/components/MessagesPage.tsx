@@ -23,7 +23,7 @@ interface Message {
 }
 
 function fmtTime(iso: string): string {
-  // 2026-09-07 18:30
+  // 07/09/2026 18:30
   return fmtDateTime(iso);
 }
 

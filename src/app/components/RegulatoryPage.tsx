@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { getSupportLink } from '../config';
+import { fmtDate } from '../utils/date';
 
 export function RegulatoryPage() {
   const { t } = useLanguage();
@@ -156,7 +157,7 @@ export function RegulatoryPage() {
                 className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 border border-gray-700/40 hover:border-[#c4f82a]/30 transition-all cursor-pointer"
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs text-gray-500">{news.date}</span>
+                  <span className="text-xs text-gray-500">{fmtDate(news.date)}</span>
                   <div className="w-1 h-1 rounded-full bg-gray-600"></div>
                   <span className="text-xs text-blue-400">{t('regulatory.news')}</span>
                 </div>
