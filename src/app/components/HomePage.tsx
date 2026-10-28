@@ -1,5 +1,8 @@
 import { Headphones, ShieldCheck, CreditCard, FileText, TrendingUp, Globe } from 'lucide-react';
-import bitcoinLogo from 'figma:asset/3391a7389925b393a8af2bd8e4e6eca0fe64b272.png';
+import bannerCoinbase from '../../assets/banner-coinbase.jpg';
+import bannerTrading from '../../assets/banner-trading.jpg';
+import bannerMarket from '../../assets/banner-market.jpg';
+import bannerProfile from '../../assets/banner-profile.jpg';
 import { Link } from 'react-router-dom';
 import Slider from 'react-slick';
 import 'slick-carousel/slick/slick.css';
@@ -312,13 +315,22 @@ export function HomePage() {
 
   const sliderSettings = {
     dots: true,
-    infinite: false,
+    infinite: true,
     speed: 500,
     slidesToShow: 1,
     slidesToScroll: 1,
     arrows: false,
-    autoplay: false,
+    autoplay: true,
+    autoplaySpeed: 4000,
   };
+
+  // 首页大图轮播 — 每一张铺满整个轮播框
+  const heroBanners = [
+    { src: bannerCoinbase, alt: 'Coinbase' },
+    { src: bannerTrading, alt: 'Trading' },
+    { src: bannerMarket, alt: 'Crypto Markets' },
+    { src: bannerProfile, alt: 'My Account' },
+  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0f1419] to-[#1a1f2e] text-white pb-20">
@@ -349,24 +361,19 @@ export function HomePage() {
           />
         </div>
 
-        <Slider {...sliderSettings}>
-          <div>
-            <div className="relative h-32 flex items-center justify-center">
-              <img
-                src={bitcoinLogo}
-                alt="Bitcoin"
-                className="h-28 object-contain"
-              />
-              {/* Decorative elements */}
-              <div className="absolute top-4 left-8 w-12 h-12 rounded-full bg-gradient-to-br from-[#c4f82a] to-green-600 opacity-70 blur-xl"></div>
-              <div className="absolute bottom-4 left-1/4 w-6 h-6 rounded-full bg-yellow-400"></div>
-              <div className="absolute bottom-8 right-1/4 w-3 h-3 rounded-full bg-gray-500"></div>
-              <div className="absolute top-1/4 right-8">
-                <div className="text-[#c4f82a] text-2xl">★</div>
+        <div className="rounded-xl border border-gray-700/50 mb-8">
+          <Slider {...sliderSettings}>
+            {heroBanners.map((b) => (
+              <div key={b.src}>
+                <img
+                  src={b.src}
+                  alt={b.alt}
+                  className="w-full h-40 sm:h-48 object-cover rounded-xl"
+                />
               </div>
-            </div>
-          </div>
-        </Slider>
+            ))}
+          </Slider>
+        </div>
       </div>
 
       {/* Features Grid */}
