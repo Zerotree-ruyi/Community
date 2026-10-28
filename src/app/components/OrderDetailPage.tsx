@@ -5,6 +5,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { directionText } from './OrderCard';
 import { displayCoinName } from '../data/marketConfig';
+import { fmtDateTime } from '../utils/date';
 
 interface Order {
   id: number;
@@ -27,17 +28,7 @@ interface Order {
 
 function fmtTime(s: string | null | undefined): string {
   if (!s) return '--';
-  // 后端可能给 "2026-10-16 16:21:34"(无时区) 或 ISO 字符串
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  return fmtDateTime(s);
 }
 
 function fmtNum(n: number | null | undefined, digits = 4): string {

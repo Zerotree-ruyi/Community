@@ -10,6 +10,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Mail, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { fmtDateTime } from "../utils/date";
 
 interface Message {
   id:         number;
@@ -22,17 +23,8 @@ interface Message {
 }
 
 function fmtTime(iso: string): string {
-  // 后端可能给 "2026-09-07 18:30:27"(无时区) 或 ISO 字符串
-  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  // 2026-09-07 18:30
+  return fmtDateTime(iso);
 }
 
 export function MessagesPage() {

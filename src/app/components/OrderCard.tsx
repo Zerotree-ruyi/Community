@@ -2,6 +2,7 @@ import { ChevronRight, Copy, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { displayCoinName } from '../data/marketConfig';
+import { fmtDateTime } from '../utils/date';
 
 /**
  * 订单卡片数据接口 — 接收动态数据
@@ -46,20 +47,10 @@ interface OrderCardProps {
 
 // ─── 工具函数 ──────────────────────────────────────────────────────────────
 
-/** 时间格式:Oct 16, 2026, 19:35 (en-US 24h) */
+/** 时间格式:2026-10-16 19:35(年月日 时:分) */
 function fmtTime(s: string | null | undefined): string {
   if (!s) return '--';
-  // 后端可能给 "2026-10-16 16:21:34"(无时区) 或 ISO 字符串,统一转 Date
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  return fmtDateTime(s);
 }
 
 /** 金额格式:1000.00 */
