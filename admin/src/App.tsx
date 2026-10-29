@@ -2786,7 +2786,9 @@ function MessagesPage() {
     setLoading(true);
     try {
       const params: any = { limit: PER_PAGE, offset: (p - 1) * PER_PAGE };
-      if (f.member_id.trim())  params.member_id     = Number(f.member_id);
+      // 原样传(不转 Number)—— 转成 NaN 的话筛选条件会被静默丢掉,
+      // 后端自己判断:纯数字按 ID 查,其它按账号/邀请码模糊查
+      if (f.member_id.trim())  params.member_id     = f.member_id.trim();
       if (f.member_filter)     params.member_filter = f.member_filter;
       if (f.read)              params.read          = f.read;
       if (f.keyword.trim())    params.keyword       = f.keyword.trim();
@@ -2842,12 +2844,13 @@ function MessagesPage() {
   return (
     <div className="page-container">
       <div className="filter-bar">
-        <span className="filter-label">会员ID：</span>
+        <span className="filter-label">会员ID / 账号：</span>
         <input
-          className="filter-input" style={{ width: 90 }}
-          placeholder="会员编号"
+          className="filter-input" style={{ width: 130 }}
+          placeholder="会员编号 / 账号"
           value={filter.member_id}
           onChange={e => setFilter(f => ({ ...f, member_id: e.target.value }))}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); onSearch(); } }}
         />
         <span className="filter-label">发送对象：</span>
         <select
@@ -2875,6 +2878,7 @@ function MessagesPage() {
           placeholder="标题 / 内容"
           value={filter.keyword}
           onChange={e => setFilter(f => ({ ...f, keyword: e.target.value }))}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); onSearch(); } }}
         />
         <button className="btn btn-primary" onClick={onSearch}>🔍 搜索</button>
         <button className="btn btn-warning" onClick={onReset}>↺ 重置</button>

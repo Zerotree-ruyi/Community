@@ -3177,7 +3177,12 @@ app.get("/api/messages", async (req, res) => {
   try {
     const limit  = Math.min(Number(req.query.limit  ?? 50), 500);
     const offset = Math.max(Number(req.query.offset ?? 0),  0);
-    const memberId     = req.query.member_id     ? Number(req.query.member_id)     : null;
+    // 会员筛选:纯数字 → 精确按 ID 查;其它文本 → 按账号/邀请码模糊查
+    // (前端原来用 Number() 转换,输入账号会变成 NaN 把整个筛选静默丢掉)
+    const memberRaw    = String(req.query.member_id ?? "").trim().slice(0, 64);
+    const memberIsNum  = /^\d+$/.test(memberRaw);
+    const memberId     = memberIsNum ? Number(memberRaw) : null;
+    const memberKey    = memberRaw && !memberIsNum ? memberRaw : "";
     const memberFilter = req.query.member_filter === "all"   ? "all"   : req.query.member_filter === "specific" ? "specific" : "";
     const readFilter   = req.query.read   === "read"  ? "read"
                        : req.query.read   === "unread"? "unread": "";
@@ -3201,6 +3206,10 @@ app.get("/api/messages", async (req, res) => {
     const args:  any[]    = [];
     if (memberId !== null && Number.isFinite(memberId) && memberId > 0) {
       where.push("m.member_id = ?"); args.push(memberId);
+    } else if (memberKey) {
+      // 账号 / 邀请码 模糊匹配(和会员列表的搜索框一样)
+      where.push("m.member_id IN (SELECT id FROM members WHERE account LIKE ? OR invite_code LIKE ?)");
+      args.push(`%${memberKey}%`, `%${memberKey}%`);
     } else if (memberFilter === "all")      { where.push("m.member_id IS NULL"); }
     else if (memberFilter === "specific")   { where.push("m.member_id IS NOT NULL"); }
     if (readFilter === "read")   { where.push("m.read_time IS NOT NULL"); }

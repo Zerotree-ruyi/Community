@@ -197,7 +197,8 @@ export const api = {
 
   listMessages: (params?: {
     limit?: number; offset?: number;
-    member_id?: number; member_filter?: "all" | "specific" | "";
+    /** 会员筛选 — 纯数字按 ID 查,其它文本按账号/邀请码模糊查(原样传给后端) */
+    member_id?: number | string; member_filter?: "all" | "specific" | "";
     read?: "read" | "unread" | ""; keyword?: string;
   }) => {
     const q = new URLSearchParams();
