@@ -136,9 +136,12 @@ export function MessagesPage() {
                     <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">
                       {m.content}
                     </div>
-                    <div className="text-right text-xs text-gray-500 mt-3">
-                      —— {m.sender}
-                    </div>
+                    {/* 发送人署名 — 后台发的(sender = admin)不显示 */}
+                    {String(m.sender || "").trim().toLowerCase() !== "admin" && m.sender && (
+                      <div className="text-right text-xs text-gray-500 mt-3">
+                        —— {m.sender}
+                      </div>
+                    )}
                   </div>
                 )}
               </button>

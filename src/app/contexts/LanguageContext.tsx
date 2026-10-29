@@ -495,6 +495,7 @@ const translations: Record<Language, any> = {
       minAmount: 'Minimum withdrawal: {{min}} USDT',
       insufficientBalance: 'Insufficient balance',
       invalidFundPwd: 'Please enter a 6-digit numeric fund password',
+      creditTooLow: 'Your account credit score is below 90, so you are not eligible to apply for a withdrawal. When your credit score reaches 90, you can apply for a withdrawal on your account.',
       submitSuccess: 'Withdrawal submitted, awaiting review',
       submitFailed: 'Submission failed',
       loadFailed: 'Failed to load',

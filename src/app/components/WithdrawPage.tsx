@@ -10,6 +10,16 @@ import { StrongPasswordField } from './StrongPasswordField';
 type WalletType = 'bank' | 'digital';
 
 const MIN_AMOUNT = 10;
+/** 提现需要的最低信用分(信誉分)—— 低于这个分不能申请提现 */
+const CREDIT_MIN = 90;
+
+/** credit 字段格式 "<score>|<vip_level>",取前半段;拿不到就返回 null(不拦) */
+function parseCreditScore(raw: unknown): number | null {
+  const s = String(raw ?? '').split('|')[0].trim();
+  if (!s) return null;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : null;
+}
 
 export function WithdrawPage() {
   const { t } = useLanguage();
@@ -27,20 +37,27 @@ export function WithdrawPage() {
   const [submitting, setSubmitting] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [bannedDialog, setBannedDialog] = useState(false);
+  // 信用分不足 90 — 点提现时弹提示
+  const [creditDialog, setCreditDialog] = useState(false);
+  // 信用分原始值 "<score>|<vip_level>"(从服务端拉的,保证是最新的)
+  const [creditRaw, setCreditRaw] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   // 在途提现 — 同时只能有一笔,上一笔没处理完不能再提交
   const [pendingWithdrawal, setPendingWithdrawal] = useState<{ id: number; amount: number } | null>(null);
   // 在途提现弹窗 — 点提交时弹出来说明为什么不能继续
   const [pendingDialog, setPendingDialog] = useState(false);
 
-  // 拉余额
+  // 拉余额 + 信用分
   useEffect(() => {
     if (!user?.id) return;
     (async () => {
       try {
         const res = await fetch(`/api/members/${user.id}`);
         const data = await res.json();
-        if (res.ok) setBalance(Number(data?.balance || 0));
+        if (res.ok) {
+          setBalance(Number(data?.balance || 0));
+          if (data?.credit != null) setCreditRaw(String(data.credit));
+        }
       } catch { /* 静默 */ }
     })();
   }, [user?.id]);
@@ -95,12 +112,22 @@ export function WithdrawPage() {
   const numAmount = parseFloat(amount) || 0;
   const receive = numAmount;
 
+  // 信用分 — 服务端拉的优先,拿不到就用登录态里的;再拿不到(null)就不拦
+  const creditScore = parseCreditScore(creditRaw ?? user?.credit ?? '');
+  const creditBlocked = creditScore !== null && creditScore < CREDIT_MIN;
+
   const onAllAmount = () => setAmount(balance.toFixed(2));
 
   const onSubmit = async (e?: FormEvent) => {
     if (e) e.preventDefault();
     setErrMsg(null);
     if (!user?.id) { setErrMsg(t('withdraw.pleaseLogin')); return; }
+    // 信用分低于 90 — 不给申请提现,直接弹英文提示
+    if (creditBlocked) {
+      setErrMsg(null);
+      setCreditDialog(true);
+      return;
+    }
     if (pendingWithdrawal) {
       // 已有在途提现 — 弹窗说明,不提交
       setPendingDialog(true);
@@ -333,7 +360,7 @@ export function WithdrawPage() {
         {/* Submit */}
         <button
           type="submit"
-          disabled={submitting || (!pendingWithdrawal && (!selectedWallet || !amount))}
+          disabled={submitting}
           className="w-full bg-[#c4f82a] text-black py-4 rounded-xl mb-4 hover:opacity-90 transition-opacity font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {submitting ? 'Submitting...' : (pendingWithdrawal ? 'Request in progress' : t('withdraw.submit'))}
@@ -345,10 +372,6 @@ export function WithdrawPage() {
             <div className="flex items-start gap-2">
               <span>•</span>
               <span>After a withdrawal request is submitted, the amount is deducted from your available balance and credited once approved.</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span>•</span>
-              <span>If the review is rejected, the amount will be returned to your available balance.</span>
             </div>
             <div className="flex items-start gap-2">
               <span>•</span>
@@ -415,6 +438,41 @@ export function WithdrawPage() {
                   OK
                 </button>
               </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 信用分不足 90 — 点提现时弹出(英文提示) */}
+      {creditDialog && (
+        <>
+          {/* 遮罩 */}
+          <div
+            className="fixed inset-0 bg-black/70 z-40"
+            onClick={() => setCreditDialog(false)}
+          />
+          {/* 弹窗 */}
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 mx-auto max-w-sm bg-[#1a1a1a] border border-amber-500/40 rounded-2xl p-6 shadow-2xl shadow-black/60"
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center mb-4">
+                <ShieldOff className="w-7 h-7 text-amber-400" />
+              </div>
+              <h3 className="text-base font-semibold text-white mb-2">
+                Withdrawal Not Available
+              </h3>
+              <p className="text-sm text-gray-300 leading-relaxed mb-5">
+                {t('withdraw.creditTooLow')}
+              </p>
+              <button
+                onClick={() => setCreditDialog(false)}
+                className="w-full bg-[#c4f82a] text-black py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity"
+              >
+                OK
+              </button>
             </div>
           </div>
         </>
