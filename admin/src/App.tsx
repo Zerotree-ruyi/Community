@@ -1836,10 +1836,8 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
   onDone: (msg: string, kind: "ok" | "err") => void;
 }) {
   const [pwd, setPwd]             = useState("");
-  const [pwdConfirm, setPwdConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr]              = useState<string | null>(null);
-  const [showPwd, setShowPwd]      = useState(false);
 
   const isLogin = type === "login";
   // 登录密码 6-32 位任意字符,资金密码 6 位数字
@@ -1854,12 +1852,11 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
   const successVerb  = isLogin ? "重置登录密码" : "重置资金密码";
 
   const pwdOk      = pwd.length > 0 && re.test(pwd);
-  const confirmOk  = pwd === pwdConfirm && pwd.length > 0;
-  const canSubmit  = pwdOk && confirmOk && !submitting;
+  const canSubmit  = pwdOk && !submitting;
 
   // 每次打开/换会员时重置(必须在 early return 之前,保证 hooks 顺序稳定)
   useEffect(() => {
-    setPwd(""); setPwdConfirm(""); setErr(null); setShowPwd(false);
+    setPwd(""); setErr(null);
   }, [member?.id, type]);
 
   // ✅ 所有 hooks 都调用完,才允许 early return
@@ -1867,14 +1864,13 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
 
   const submit = async () => {
     setErr(null);
-    if (!pwdOk)   { setErr(isLogin ? "登录密码长度需 6-32 位" : "资金密码必须是 6 位数字"); return; }
-    if (!confirmOk){ setErr("两次输入不一致"); return; }
+    if (!pwdOk) { setErr(isLogin ? "登录密码长度需 6-32 位" : "资金密码必须是 6 位数字"); return; }
     setSubmitting(true);
     try {
       if (isLogin) await api.resetLoginPassword(member.id, pwd, "admin");
       else         await api.resetFundPassword (member.id, pwd, "admin");
       onDone(`✔ ${successVerb}成功 ${member.account}`, "ok");
-      setPwd(""); setPwdConfirm("");
+      setPwd("");
     } catch (e: any) {
       setErr(e.message || "操作失败");
     } finally {
@@ -1950,7 +1946,7 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
             ⚠ {hint}
           </div>
 
-          {/* 新密码 */}
+          {/* 新密码 —— 明文显示,不用二次确认 */}
           <label style={{ display: "block", fontSize: 14, color: "#555", marginBottom: 6 }}>
             新密码 <span style={{ color: "#f5222d" }}>*</span>
             {pwd.length > 0 && (
@@ -1959,53 +1955,17 @@ function ResetPwdModal({ type, member, onClose, onDone }: {
               </span>
             )}
           </label>
-          <div style={{ position: "relative", marginBottom: 14 }}>
-            <input
-              type={showPwd ? "text" : "password"}
-              value={pwd}
-              placeholder={placeholder}
-              onChange={(e) => setPwd(e.target.value)}
-              disabled={submitting}
-              autoFocus
-              style={{
-                width: "100%", padding: "10px 38px 10px 12px",
-                border: `1px solid ${pwd.length > 0 && !pwdOk ? "#f5222d" : "#d9d9d9"}`,
-                borderRadius: 4, fontSize: 14, outline: "none", boxSizing: "border-box",
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPwd(!showPwd)}
-              tabIndex={-1}
-              style={{
-                position: "absolute", right: 8, top: "50%",
-                transform: "translateY(-50%)",
-                background: "transparent", border: "none",
-                cursor: "pointer", padding: 4, color: "#888",
-                fontSize: 12,
-              }}
-            >{showPwd ? "🙈" : "👁"}</button>
-          </div>
-
-          {/* 确认密码 */}
-          <label style={{ display: "block", fontSize: 14, color: "#555", marginBottom: 6 }}>
-            确认密码 <span style={{ color: "#f5222d" }}>*</span>
-            {pwdConfirm.length > 0 && (
-              <span style={{ float: "right", fontSize: 13, color: confirmOk ? "#52c41a" : "#f5222d" }}>
-                {confirmOk ? "✓ 一致" : "✗ 不一致"}
-              </span>
-            )}
-          </label>
           <input
-            type={showPwd ? "text" : "password"}
-            value={pwdConfirm}
-            placeholder="再输入一次"
-            onChange={(e) => setPwdConfirm(e.target.value)}
-            disabled={submitting}
+            type="text"
+            value={pwd}
+            placeholder={placeholder}
+            onChange={(e) => setPwd(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) submit(); }}
+            disabled={submitting}
+            autoFocus
             style={{
               width: "100%", padding: "10px 12px", marginBottom: 4,
-              border: `1px solid ${pwdConfirm.length > 0 && !confirmOk ? "#f5222d" : "#d9d9d9"}`,
+              border: `1px solid ${pwd.length > 0 && !pwdOk ? "#f5222d" : "#d9d9d9"}`,
               borderRadius: 4, fontSize: 14, outline: "none", boxSizing: "border-box",
             }}
           />
@@ -4874,7 +4834,7 @@ function CreateEmployeeModal({ onClose, onCreated, onError }: {
           value={password}
           onChange={setPassword}
           placeholder="6-32 位"
-          type="password"
+          type="text"
         />
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 13, color: "#333", marginBottom: 4 }}>
@@ -4915,18 +4875,15 @@ function ChangePasswordModal({ id, username, onClose, onSaved, onError }: {
   onClose: () => void; onSaved: () => void; onError: (m: string) => void;
 }) {
   const [newPwd, setNewPwd]   = useState("");
-  const [confirm, setConfirm] = useState("");
   const [busy, setBusy]       = useState(false);
   const [err, setErr]         = useState<string | null>(null);
 
   const lengthOk = newPwd.length >= 6 && newPwd.length <= 32;
-  const matchOk  = !confirm || newPwd === confirm;
-  const canSubmit = lengthOk && newPwd === confirm && !busy;
+  const canSubmit = lengthOk && !busy;
 
   const submit = async () => {
     setErr(null);
     if (!lengthOk)              return setErr("新密码需 6-32 位");
-    if (newPwd !== confirm)     return setErr("两次密码不一致");
     setBusy(true);
     try {
       const r = await fetch(`/api/admin/employees/${id}/reset-password`, {
@@ -4957,9 +4914,10 @@ function ChangePasswordModal({ id, username, onClose, onSaved, onError }: {
             新密码 <span style={{ color: "#ff4d4f" }}>*</span>
           </label>
           <input
-            type="password"
+            type="text"
             value={newPwd}
             onChange={(e) => { setNewPwd(e.target.value); setErr(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) submit(); }}
             placeholder="6-32 位字符"
             style={{
               width: "100%", padding: 8, border: "1px solid #ddd",
@@ -4968,25 +4926,6 @@ function ChangePasswordModal({ id, username, onClose, onSaved, onError }: {
           />
           {newPwd && !lengthOk && (
             <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>密码长度需 6-32 位</div>
-          )}
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 13, color: "#333", marginBottom: 4 }}>
-            确认新密码 <span style={{ color: "#ff4d4f" }}>*</span>
-          </label>
-          <input
-            type="password"
-            value={confirm}
-            onChange={(e) => { setConfirm(e.target.value); setErr(null); }}
-            placeholder="再输入一次"
-            style={{
-              width: "100%", padding: 8, border: "1px solid #ddd",
-              borderRadius: 4, fontSize: 13, boxSizing: "border-box",
-            }}
-          />
-          {confirm && !matchOk && (
-            <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>两次密码不一致</div>
           )}
         </div>
 
