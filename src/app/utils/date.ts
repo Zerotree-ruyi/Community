@@ -1,10 +1,11 @@
 /**
  * 通用时间格式化 — 日/月/年 时:分(24 小时制)
  *   输入: ISO 字符串 / "YYYY-MM-DD HH:mm:ss" / Date
- *   输出: "28/10/2026 22:22"
+ *   输出: "28 Oct 2026 20:42"
  *   失败回退: 原字符串
  *
- * 格式按 DD/MM/YYYY(日在前)—— 印度常用写法,例:2026年8月9日 → 09/08/2026
+ * 格式按 日/月/年(日在前)+ 英文月份缩写 —— 例:2026年10月28日 → 28 Oct 2026
+ * 不是美式的 月/日/年("Oct 28, 2026")
  *
  * 时区固定为印度标准时间(Asia/Kolkata, UTC+5:30),
  * 不跟浏览器所在时区走 —— 客户在印度看到的就是印度时间。
@@ -22,7 +23,7 @@ function toDate(s: string | Date | null | undefined): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** 取印度时区下的年月日时分 */
+/** 取印度时区下的 年/月名/日/时/分 */
 function istParts(d: Date) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: TZ,
@@ -40,28 +41,30 @@ function istParts(d: Date) {
     year: get("year"),
     hour: get("hour"),
     minute: get("minute"),
+    // 英文月份缩写 —— "Oct"
+    monthShort: new Intl.DateTimeFormat("en-GB", { timeZone: TZ, month: "short" }).format(d),
   };
 }
 
-/** "28/10/2026 22:22" */
+/** "28 Oct 2026 20:42" */
 export function fmtDateTime(s: string | Date | null | undefined): string {
   if (!s) return "-";
   const d = toDate(s);
   if (!d) return typeof s === "string" ? s : "-";
   const p = istParts(d);
-  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
+  return `${p.day} ${p.monthShort} ${p.year} ${p.hour}:${p.minute}`;
 }
 
-/** 仅日期 — "28/10/2026" */
+/** 仅日期 — "28 Oct 2026" */
 export function fmtDate(s: string | Date | null | undefined): string {
   if (!s) return "-";
   const d = toDate(s);
   if (!d) return typeof s === "string" ? s : "-";
   const p = istParts(d);
-  return `${p.day}/${p.month}/${p.year}`;
+  return `${p.day} ${p.monthShort} ${p.year}`;
 }
 
-/** 只要时间 — "22:22" */
+/** 只要时间 — "20:42" */
 export function fmtTimeOnly(s: string | Date | null | undefined): string {
   if (!s) return "-";
   const d = toDate(s);
@@ -83,15 +86,16 @@ export const IST_SHIFT_SEC = 19800;
 /**
  * K 线图十字光标上的时间(入参是"已经平移过"的时间戳)
  *
- * 日/月/年 顺序 —— "29 Oct 17:30",不是美式的 "Oct 29, 2026"
+ * 日/月/年 顺序 —— "28 Oct 2026 17:30",不是美式的 "Oct 28, 2026"
  */
 export function fmtChartTick(ts: number): string {
   const d = new Date(ts * 1000);
   if (isNaN(d.getTime())) return "";
   const p = (n: number) => String(n).padStart(2, "0");
   const day = p(d.getUTCDate());
+  const year = d.getUTCFullYear();
   const hour = p(d.getUTCHours());
   const minute = p(d.getUTCMinutes());
   const month = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short" }).format(d);
-  return `${day} ${month} ${hour}:${minute}`;
+  return `${day} ${month} ${year} ${hour}:${minute}`;
 }
