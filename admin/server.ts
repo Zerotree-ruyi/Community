@@ -3479,6 +3479,9 @@ app.get("/api/orders", async (req, res) => {
     let   agentId  = req.query.agent_id   ? Number(req.query.agent_id) : null;
     const invite   = req.query.invite_code? String(req.query.invite_code).trim() : "";
     const symbol   = req.query.symbol     ? String(req.query.symbol).trim() : "";
+    // 对外显示名 → 库里存的 symbol(BTG 这个 pair 在库里存的是 APTUSDT)
+    const SYMBOL_DISPLAY: Record<string, string> = { BTG: "APTUSDT" };
+    const symbolKey = SYMBOL_DISPLAY[symbol.toUpperCase()] ?? symbol;
     const status   = req.query.status     ? String(req.query.status) : "";
     const dir      = req.query.direction  ? String(req.query.direction) : "";
     const startTime = req.query.start_time ? String(req.query.start_time) : "";
@@ -3499,7 +3502,7 @@ app.get("/api/orders", async (req, res) => {
     if (orderId) { where.push("o.id = ?"); params.push(orderId); }
     if (agentId !== null) { where.push("o.agent_id = ?"); params.push(agentId); }
     if (invite)  { where.push("o.invite_code = ?"); params.push(invite); }
-    if (symbol)  { where.push("o.symbol = ?"); params.push(symbol); }
+    if (symbol)  { where.push("o.symbol = ?"); params.push(symbolKey); }
     if (status)  { where.push("o.status = ?"); params.push(status); }
     if (dir)     { where.push("o.direction = ?"); params.push(dir); }
     if (startTime) { where.push("o.open_time >= ?"); params.push(startTime); }

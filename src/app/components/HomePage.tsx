@@ -126,7 +126,7 @@ function MarketTableRow({ coin, price, change, positive }: {
       <div className="col-span-4 flex items-center gap-3 min-w-0">
         <CryptoLogo symbol={coin.key} name={coin.key} color={coin.color} />
         <div className="min-w-0">
-          <div className="text-base text-white truncate">{coin.key}</div>
+          <div className="text-base text-white truncate">{coin.key === 'APT' ? coin.name : coin.key}</div>
           <div className="text-xs text-gray-500 truncate">{coin.name}</div>
         </div>
       </div>

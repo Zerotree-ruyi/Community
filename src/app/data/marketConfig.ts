@@ -33,7 +33,7 @@ export const MARKET_COINS: MarketCoin[] = [
   { symbol: 'BINANCE:ATOMUSDT',  name: 'Cosmos',           pair: 'USDT', glyph: 'C', color: 'bg-blue-800',   key: 'ATOM' },
   { symbol: 'BINANCE:ETCUSDT',   name: 'Ethereum Classic', pair: 'USDT', glyph: 'E', color: 'bg-green-600',  key: 'ETC'  },
   { symbol: 'BINANCE:NEARUSDT',  name: 'NEAR Protocol',    pair: 'USDT', glyph: 'N', color: 'bg-black',      key: 'NEAR' },
-  { symbol: 'BINANCE:APTUSDT',   name: 'Aptos',            pair: 'USDT', glyph: 'A', color: 'bg-zinc-700',   key: 'APT'  },
+  { symbol: 'BINANCE:APTUSDT',   name: 'BTG',              pair: 'USDT', glyph: 'A', color: 'bg-zinc-700',   key: 'APT'  },
   { symbol: 'BINANCE:ARBUSDT',   name: 'Arbitrum',         pair: 'USDT', glyph: 'A', color: 'bg-sky-600',    key: 'ARB'  },
   { symbol: 'BINANCE:OPUSDT',    name: 'Optimism',         pair: 'USDT', glyph: 'O', color: 'bg-red-500',    key: 'OP'   },
   { symbol: 'BINANCE:FILUSDT',   name: 'Filecoin',         pair: 'USDT', glyph: 'F', color: 'bg-blue-500',   key: 'FIL'  },
@@ -43,11 +43,14 @@ export const MARKET_COINS: MarketCoin[] = [
 /**
  * 交易对 → 前台显示的币种名
  *
- * 显示名统一 = 交易对本身的基础币(APTUSDT → APT),
- * 和后台 / API / DB 里存的 symbol 一致 —— 前台后台看到的必须是同一个名字。
+ * 为什么要这个函数:
+ *   BINANCE:APTUSDT 这个 pair 在平台上对外叫 "BTG"(重命名),
+ *   但 API / URL / DB 里存的 symbol 一直是 "APTUSDT"。
+ *   所以凡是显示币种的地方都必须走这个函数 —— 否则会出现
+ *   "下单页写 BTG、订单页写 APT" 的不一致。
  *
  * 用法:
- *   displayCoinName('APTUSDT') → 'APT'
+ *   displayCoinName('APTUSDT') → 'BTG'
  *   displayCoinName('BTCUSDT') → 'BTC'
  *   displayCoinName('FOO/USDT') → 'FOO'
  */
@@ -57,5 +60,6 @@ export function displayCoinName(symbol: string | null | undefined): string {
   const base = s.replace(/USDT$/, '');
   const coin = MARKET_COINS.find(c => c.symbol === `BINANCE:${base}USDT`);
   if (!coin) return base;
-  return coin.key;
+  // APT 这个 pair 对外叫 BTG,其余用简称(key)
+  return coin.key === 'APT' ? coin.name : coin.key;
 }

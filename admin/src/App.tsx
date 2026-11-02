@@ -104,6 +104,30 @@ function useAutoRefresh(fn: () => void, ms = 5000) {
 }
 
 /**
+ * 交易对显示名 —— 与前台保持一致
+ *
+ *   BINANCE:APTUSDT 这个 pair 在平台上对外叫 "BTG"(重命名),
+ *   但 API / DB 里存的 symbol 一直是 "APTUSDT"。
+ *   前台下单页写 BTG,后台这里也要写 BTG,不然前后台对不上。
+ */
+const SYMBOL_DISPLAY: Record<string, string> = { APTUSDT: "BTG" };
+
+/** 库里存的 symbol → 对外显示名("APTUSDT" → "BTG") */
+function displaySymbol(symbol: string | null | undefined): string {
+  const s = String(symbol ?? "").trim();
+  if (!s) return "—";
+  return SYMBOL_DISPLAY[s.toUpperCase()] ?? s;
+}
+
+/** 输入的显示名 → 库里存的 symbol("BTG" → "APTUSDT"),用于筛选 */
+function storedSymbol(input: string): string {
+  const s = String(input ?? "").trim();
+  if (!s) return "";
+  const hit = Object.keys(SYMBOL_DISPLAY).find((k) => SYMBOL_DISPLAY[k] === s.toUpperCase());
+  return hit ?? s;
+}
+
+/**
  * 金额显示 —— 不用千分位逗号,固定两位小数
  *   1008    → "1008.00"
  *   5000.5  → "5000.50"
@@ -3923,7 +3947,7 @@ function OrderListPage() {
       if (memberAcct.trim())                                params.member_account = memberAcct.trim();
       if (agentId.trim()   && /^\d+$/.test(agentId.trim())) params.agent_id       = Number(agentId.trim());
       if (invite.trim())                                    params.invite_code    = invite.trim();
-      if (symbol.trim())                                    params.symbol         = symbol.trim();
+      if (symbol.trim())                                    params.symbol         = storedSymbol(symbol.trim());
       if (status)                                           params.status         = status;
       if (direction)                                        params.direction      = direction;
       if (startTime)                                        params.start_time     = startTime;
@@ -3963,7 +3987,7 @@ function OrderListPage() {
         <input className="filter-input" style={{ width: 100 }} placeholder="邀请码"
           value={invite} onChange={(e) => setInvite(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
-        <input className="filter-input" style={{ width: 100 }} placeholder="币种 (BTCUSDT)"
+        <input className="filter-input" style={{ width: 100 }} placeholder="币种 (BTCUSDT/BTG)"
           value={symbol} onChange={(e) => setSymbol(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); reload(); } }} />
         <span className="filter-label">状态:</span>
@@ -4023,7 +4047,7 @@ function OrderListPage() {
                       <div>{o.member_account || `#${o.member_id}`}</div>
                       <div style={{ fontSize: 11, color: "#888" }}>ID: {o.member_id}</div>
                     </td>
-                    <td><Badge label={o.symbol} color="blue" /></td>
+                    <td><Badge label={displaySymbol(o.symbol)} color="blue" /></td>
                     <td className="num-cell" style={{ fontSize: 12 }}>
                       <div>{fmtPrice(o.open_price)}</div>
                       {o.close_price != null && <div style={{ color: "#888" }}>{fmtPrice(o.close_price)}</div>}

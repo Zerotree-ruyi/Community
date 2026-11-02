@@ -463,7 +463,7 @@ export function MarketPage() {
                   />
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-base">{item.key}</span>
+                      <span className="text-base">{item.key === 'APT' ? item.name : item.key}</span>
                       <span className="bg-gray-700 text-[#c4f82a] text-[10px] px-1.5 py-0.5 rounded">
                         100x
                       </span>
