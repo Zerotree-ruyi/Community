@@ -147,9 +147,9 @@ export function TradingPage() {
     ? (amountNum * (1 + selectedReturnRate / 100)).toFixed(2)
     : '--';
 
-  // 显示名称 — 统一走 displayCoinName(APT 这个 pair 对外叫 BTG)
+  // 显示名称 — 统一走 displayCoinName(显示的就是交易对本身的基础币)
   //   Header / 抽屉标题 / 币种行 / 订单页 必须一致,
-  //   否则会出现"下单页写 BTG、订单页写 APT"
+  //   否则会出现"下单页写 A、订单页写 B" 的不一致
   const displayHeader = displayCoinName(tradingSymbol);
   const currentReturn = `${selectedReturnRate}%`;
 
