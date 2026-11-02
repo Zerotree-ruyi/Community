@@ -4076,7 +4076,21 @@ function OrderListPage() {
                     </td>
                     <td style={{ fontSize: 12 }}>
                       <span style={{ color: o.direction === "涨" ? "#f44336" : "#4caf50", fontWeight: 600 }}>
-                        {o.direction === "涨" ? "买涨 ↑" : "买跌 ↓"}
+                        {o.direction === "涨" ? "买涨" : "买跌"}
+                      </span>
+                      {/* 箭头单独放大加粗 */}
+                      <span
+                        style={{
+                          color: o.direction === "涨" ? "#f44336" : "#4caf50",
+                          fontWeight: 900,
+                          fontSize: 19,
+                          lineHeight: 1,
+                          marginLeft: 4,
+                          display: "inline-block",
+                          verticalAlign: "middle",
+                        }}
+                      >
+                        {o.direction === "涨" ? "↑" : "↓"}
                       </span>
                       <span style={{ margin: "0 4px", color: "#888" }}>/</span>
                       <span style={{ color: "#888" }}>
