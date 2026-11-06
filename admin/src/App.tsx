@@ -890,7 +890,7 @@ function MembersPage() {
                 <th>ID</th>
                 <th>账号</th>
                 <th>状态</th>
-                <th>余额 | 冻结</th>
+                <th>余额 | 冻结 | <span style={{ color: "#52c41a" }}>提现中</span></th>
                 <th>信誉 | VIP</th>
                 <th>输赢</th>
                 <th>方向</th>
@@ -924,7 +924,10 @@ function MembersPage() {
                     title="点击编辑该会员"
                   >{m.account}</td>
                   <td><Toggle value={m.status === 1} onClick={() => toggleStatus(m)} /></td>
-                  <td className="num-cell">{fmtAmount(m.balance)} | {fmtAmount(m.frozen)}</td>
+                  <td className="num-cell">
+                    {fmtAmount(m.balance)} | {fmtAmount(m.frozen)} |{" "}
+                    <span style={{ color: "#52c41a" }}>{fmtAmount(m.pending_withdraw)}</span>
+                  </td>
                   <td>{(() => { const p = String(m.credit || "").split("|"); return `${p[0] || 0} | V${p[1] || 0}`; })()}</td>
                   <td>
                     <ToggleCell
@@ -2802,7 +2805,7 @@ function MessagesPage() {
     read: "",
     keyword: "",
   });
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [viewMsg, setViewMsg] = useState<any | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [toast, setToast] = useState<{ msg: string; kind: "ok" | "err" } | null>(null);
 
@@ -2854,7 +2857,7 @@ function MessagesPage() {
     )) return;
     try {
       await api.deleteMessage(m.id);
-      if (expandedId === m.id) setExpandedId(null);
+      if (viewMsg?.id === m.id) setViewMsg(null);
       setToast({ msg: `已删除消息 #${m.id}`, kind: "ok" });
       // 删掉当前页最后一条时往前翻一页,避免停在空白页
       const nextPage = rows.length === 1 && page > 1 ? page - 1 : page;
@@ -2936,10 +2939,9 @@ function MessagesPage() {
               ) : (
                 <>
                   {rows.map(m => {
-                    const isOpen = expandedId === m.id;
                     const isBroadcast = m.member_id === null;
                     return (
-                      <tr key={m.id} style={{ background: isOpen ? "#f0f5ff" : undefined }}>
+                      <tr key={m.id}>
                         <td></td>
                         <td style={{ color: "#888" }}>{m.id}</td>
                         <td>
@@ -2961,9 +2963,9 @@ function MessagesPage() {
                         <td>
                           <div style={{ display: "flex", gap: 6 }}>
                             <ActBtn
-                              label={isOpen ? "收起" : "查看"}
+                              label="查看"
                               color="blue"
-                              onClick={() => setExpandedId(isOpen ? null : m.id)}
+                              onClick={() => setViewMsg(m)}
                             />
                             <ActBtn
                               label="🗑 删除"
@@ -2975,37 +2977,6 @@ function MessagesPage() {
                       </tr>
                     );
                   })}
-                  {/* 展开的内容行 — 在表格里以 colspan 横跨所有列 */}
-                  {expandedId && rows.find(r => r.id === expandedId) && (
-                    <tr>
-                      <td colSpan={9} style={{ background: "#fafbff", padding: 0 }}>
-                        {(() => {
-                          const m = rows.find(r => r.id === expandedId)!;
-                          return (
-                            <div style={{ padding: "16px 24px", borderLeft: "3px solid #1890ff" }}>
-                              <div style={{ fontWeight: 600, fontSize: 14, color: "#333", marginBottom: 8 }}>
-                                {m.title || "(无标题)"}
-                              </div>
-                              <div style={{
-                                fontSize: 14, color: "#555",
-                                whiteSpace: "pre-wrap", lineHeight: 1.7,
-                                maxHeight: 240, overflowY: "auto",
-                              }}>
-                                {m.content || <span style={{ color: "#bbb" }}>(无内容)</span>}
-                              </div>
-                              <div style={{ marginTop: 10, fontSize: 12, color: "#999" }}>
-                                发送人: {m.sender || "system"}
-                                {m.member_id && <> · 接收人: {m.member_account || `#${m.member_id}`}</>}
-                                {!m.member_id && <> · 接收人: 全员广播</>}
-                                {" · 发送时间: "}{fmtDateTime(m.send_time)}
-                                {m.read_time && <> · 阅读时间: {fmtDateTime(m.read_time)}</>}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                  )}
                 </>
               )}
             </tbody>
@@ -3034,6 +3005,11 @@ function MessagesPage() {
         />
       )}
 
+      {/* 查看站内信 — 弹窗(以前是在表格最底下展开一行,得翻到最下面才看得到) */}
+      {viewMsg && (
+        <MessageViewModal msg={viewMsg} onClose={() => setViewMsg(null)} />
+      )}
+
       {toast && (
         <div
           role="status"
@@ -3048,6 +3024,55 @@ function MessagesPage() {
           }}
         >{toast.msg}</div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 站内信查看弹窗 — 消息列表里点"查看"打开
+ *   以前是在表格最底下展开一行,列表长了得翻到最下面才看得到内容,
+ *   改成弹窗,点哪条看哪条。
+ */
+function MessageViewModal({ msg, onClose }: { msg: any; onClose: () => void }) {
+  const isBroadcast = msg.member_id === null;
+  return (
+    <div style={modalBackdropStyle} onClick={onClose}>
+      <div
+        style={{ ...modalCardStyle, width: 600 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 style={{ margin: "0 0 14px", fontSize: 17, color: "#222", lineHeight: 1.4 }}>
+          {msg.title || "(无标题)"}
+        </h3>
+
+        {/* 元信息 */}
+        <div style={{
+          display: "flex", flexWrap: "wrap", gap: "6px 16px",
+          fontSize: 12, color: "#888", marginBottom: 14,
+          paddingBottom: 12, borderBottom: "1px solid #f0f0f0",
+        }}>
+          <span>ID: {msg.id}</span>
+          <span>发送人: {msg.sender || "system"}</span>
+          <span>接收人: {isBroadcast ? "全员广播" : (msg.member_account || `#${msg.member_id}`)}</span>
+          <span>发送时间: {fmtDateTime(msg.send_time)}</span>
+          <span>阅读状态: {msg.read_time ? `已读 ${fmtDateTime(msg.read_time)}` : "未读"}</span>
+        </div>
+
+        {/* 正文 */}
+        <div style={{
+          fontSize: 14, color: "#444", lineHeight: 1.8,
+          whiteSpace: "pre-wrap", wordBreak: "break-word",
+          maxHeight: "46vh", overflowY: "auto",
+          background: "#fafbff", borderLeft: "3px solid #1890ff",
+          borderRadius: 4, padding: "14px 16px",
+        }}>
+          {msg.content || <span style={{ color: "#bbb" }}>(无内容)</span>}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+          <button className="btn btn-primary" onClick={onClose}>关闭</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3396,6 +3421,7 @@ function WithdrawListPage() {
       ? rejectReasonCustom.trim()
       : rejectReasonPreset.trim();
     if (!finalReason) { alert("请选择或填写拒绝原因"); return; }
+    if (finalReason.length > 500) { alert("拒绝原因最多 500 个字符"); return; }
     if (/[一-龥]/.test(finalReason)) {
       alert("拒绝原因会显示给用户,请填写英文");
       return;
@@ -3558,7 +3584,7 @@ function WithdrawListPage() {
               >📄 查看钱包快照</button>
             </div>
             <WalletField label="实付金额 *" value={approved} onChange={setApproved} type="number" placeholder="可调整(默认等于申请金额)" />
-            <WalletField label="管理员备注" value={approveNote} onChange={setApproveNote} placeholder="可选" textarea />
+            <WalletField label="管理员备注" value={approveNote} onChange={setApproveNote} placeholder="可选" textarea maxLength={500} />
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn" onClick={() => setApproveFor(null)} disabled={acting}>取消</button>
               <button className="btn btn-primary" onClick={submitApprove} disabled={acting}>
@@ -3608,9 +3634,10 @@ function WithdrawListPage() {
                 onChange={setRejectReasonCustom}
                 placeholder="请填写英文 — 此内容会显示给用户"
                 textarea
+                maxLength={500}
               />
             )}
-            <WalletField label="管理员备注" value={rejectNote} onChange={setRejectNote} placeholder="可选,仅后台可见,不会显示给用户" textarea />
+            <WalletField label="管理员备注" value={rejectNote} onChange={setRejectNote} placeholder="可选,仅后台可见,不会显示给用户" textarea maxLength={500} />
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn" onClick={() => setRejectFor(null)} disabled={acting}>取消</button>
               <button className="btn btn-danger" onClick={submitReject} disabled={acting}>
@@ -3635,19 +3662,31 @@ const modalCardStyle: React.CSSProperties = {
 };
 
 function WalletField({
-  label, value, onChange, placeholder, type = "text", textarea = false,
-}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; textarea?: boolean; }) {
+  label, value, onChange, placeholder, type = "text", textarea = false, maxLength,
+}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; textarea?: boolean; maxLength?: number; }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <label style={{ display: "block", fontSize: 13, color: "#333", marginBottom: 4 }}>{label}</label>
       {textarea ? (
-        <textarea
-          value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={3}
-          style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 4, fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
-        />
+        <>
+          <textarea
+            value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={3}
+            maxLength={maxLength}
+            style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 4, fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
+          />
+          {maxLength ? (
+            <div style={{
+              fontSize: 11, textAlign: "right", marginTop: 2,
+              color: value.length >= maxLength ? "#f5222d" : "#999",
+            }}>
+              {value.length}/{maxLength}
+            </div>
+          ) : null}
+        </>
       ) : (
         <input
           type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+          maxLength={maxLength}
           style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 4, fontSize: 13, boxSizing: "border-box" }}
         />
       )}
@@ -5432,37 +5471,9 @@ function AdminShell({ user, onLogout }: {
         </div>
       </header>
 
-      {/* Tab Bar */}
-      <div className="tab-bar">
-        <button className="tab-nav-btn" onClick={() => tabsRef.current?.scrollBy(-80, 0)}>‹</button>
-        <div className="tabs-scroll" ref={tabsRef}>
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              className={`tab-item ${currentPage === tab.id ? "active" : ""}`}
-              onClick={() => navigate(tab.id)}
-            >
-              {tab.label}
-              {tab.id !== "home" && (
-                <span className="tab-close" onClick={e => closeTab(tab.id, e)}>×</span>
-              )}
-            </button>
-          ))}
-        </div>
-        <div className="tab-right-actions">
-          <button className="tab-nav-btn" style={{ border: "none" }} onClick={() => tabsRef.current?.scrollBy(80, 0)}>›</button>
-          <button
-            className="refresh-btn"
-            onClick={refresh}
-            style={{ transform: spinning ? "rotate(360deg)" : "none", transition: spinning ? "transform 0.8s linear" : "none" }}
-          >
-            ↺ 刷新
-          </button>
-        </div>
-      </div>
-
-      {/* Body */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      {/* Body — 左侧栏直接顶在蓝色顶栏下沿(通高),标签栏只占右侧内容区,
+          左边缘贴着侧栏,不再横跨全宽把侧栏和顶栏隔开 */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
         <Sidebar
           currentPage={currentPage}
           onNavigate={navigate}
@@ -5470,9 +5481,39 @@ function AdminShell({ user, onLogout }: {
           username={displayName}
           onLogout={handleLogout}
         />
-        <main className="main-content">
-          {renderPage(currentPage, navigate)}
-        </main>
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, minHeight: 0 }}>
+        {/* Tab Bar */}
+        <div className="tab-bar">
+          <button className="tab-nav-btn" onClick={() => tabsRef.current?.scrollBy(-80, 0)}>‹</button>
+          <div className="tabs-scroll" ref={tabsRef}>
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                className={`tab-item ${currentPage === tab.id ? "active" : ""}`}
+                onClick={() => navigate(tab.id)}
+              >
+                {tab.label}
+                {tab.id !== "home" && (
+                  <span className="tab-close" onClick={e => closeTab(tab.id, e)}>×</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="tab-right-actions">
+            <button className="tab-nav-btn" style={{ border: "none" }} onClick={() => tabsRef.current?.scrollBy(80, 0)}>›</button>
+            <button
+              className="refresh-btn"
+              onClick={refresh}
+              style={{ transform: spinning ? "rotate(360deg)" : "none", transition: spinning ? "transform 0.8s linear" : "none" }}
+            >
+              ↺ 刷新
+            </button>
+          </div>
+        </div>
+          <main className="main-content">
+            {renderPage(currentPage, navigate)}
+          </main>
+        </div>
       </div>
 
       {/* Footer */}

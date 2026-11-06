@@ -251,36 +251,8 @@ export function ProfilePage() {
           </button>
         </Link>
 
-        <Link to="/settings">
+        <Link to="/messages">
           <button className="w-full bg-gray-800/50 rounded-xl p-4 flex items-center justify-between border border-gray-700/50">
-            <div className="flex items-center gap-3">
-              <Settings className="w-5 h-5 text-gray-400" />
-              <div className="text-left">
-                <div className="text-sm">{t('profile.settings')}</div>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-gray-400" />
-          </button>
-        </Link>
-
-        {/* About + Messages — compact, sharing one rounded card */}
-        <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 divide-y divide-gray-700/50">
-          <Link
-            to="/about"
-            className="w-full p-4 flex items-center justify-between"
-          >
-            <div className="flex items-center gap-3">
-              <Info className="w-5 h-5 text-gray-400" />
-              <div className="text-left">
-                <div className="text-sm">{t('profile.about')}</div>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-gray-400" />
-          </Link>
-          <Link
-            to="/messages"
-            className="w-full p-4 flex items-center justify-between relative"
-          >
             <div className="flex items-center gap-3">
               <Bell className="w-5 h-5 text-gray-400" />
               <div className="text-left">
@@ -295,9 +267,37 @@ export function ProfilePage() {
               )}
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </div>
+          </button>
+        </Link>
+
+        <Link to="/settings">
+          <button className="w-full bg-gray-800/50 rounded-xl p-4 flex items-center justify-between border border-gray-700/50">
+            <div className="flex items-center gap-3">
+              <Settings className="w-5 h-5 text-gray-400" />
+              <div className="text-left">
+                <div className="text-sm">{t('profile.settings')}</div>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          </button>
+        </Link>
+
+        {/* About + Customer Service — compact, sharing one rounded card */}
+        <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 divide-y divide-gray-700/50">
+          <Link
+            to="/about"
+            className="w-full p-4 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <Info className="w-5 h-5 text-gray-400" />
+              <div className="text-left">
+                <div className="text-sm">{t('profile.about')}</div>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-400" />
           </Link>
 
-          {/* Customer Service — under Site Messages */}
+          {/* Customer Service */}
           <a
             href={supportUrl}
             target="_blank"

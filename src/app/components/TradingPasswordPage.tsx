@@ -64,13 +64,12 @@ export function TradingPasswordPage() {
           setStatus({ kind: 'error', message: 'Failed to load account info' });
           return;
         }
-        // 后端 SELECT SAFE_USER_COLS 不包含 fund_password 字段,
-        // 这里用另一个语义字段 fund_password_set 替代 — 详见 schema 注释
-        // 实际上 SAFE_USER_COLS 也没暴露任何密码字段,统一约定:
-        //   拿到 has_fund_password: true  → 已设置
-        //   没拿到或 false               → 未设置
-        const set = data?.has_fund_password === true || data?.member?.has_fund_password === true;
-        setHasFundPassword(set);
+        // 后端返回的是 MySQL 的 TINYINT(1/0),不是 JS 的 boolean。
+        // 之前写 `=== true` 永远不成立 → 误判成"未设置资金密码"
+        // → "旧密码"输入框整块被隐藏,用户根本没法改密码。
+        // 这里统一按数字判断:1 = 已设置。
+        const raw = data?.has_fund_password ?? data?.member?.has_fund_password;
+        setHasFundPassword(Number(raw) === 1);
         setStatus({ kind: 'idle' });
       } catch (e: any) {
         if (!cancelled) setStatus({ kind: 'error', message: e?.message || 'Network error' });
@@ -123,6 +122,9 @@ export function TradingPasswordPage() {
           data?.error === 'account_disabled'      ? 'This account has been disabled' :
           data?.error === 'not_found'             ? 'Member does not exist' :
           data?.message || `Update failed (${r.status})`;
+        // 后端说"要给旧密码",说明前面把"已设置"判断错了 ——
+        // 把旧密码输入框显示出来,让用户能继续改
+        if (data?.error === 'missing_old_password') setHasFundPassword(true);
         setStatus({ kind: 'error', message: msg });
         return;
       }
@@ -174,17 +176,18 @@ export function TradingPasswordPage() {
         </div>
 
         <div className="space-y-4">
-          {/* Current Password (only if has fund password) */}
+          {/* Old Password (only if has fund password) */}
           {hasFundPassword && (
             <div>
-              <label className="text-sm text-gray-400 mb-2 block">Current Fund Password</label>
+              <label className="text-sm text-gray-400 mb-2 block">Old Fund Password</label>
               <StrongPasswordField
                 value={oldPwd}
                 onChange={(v) => { setOldPwd(v); setStatus({ kind: 'idle' }); }}
-                placeholder="Enter your current 6-digit fund password"
+                placeholder="Enter your old fund password"
                 maxLength={6}
                 inputMode="numeric"
                 autoComplete="current-password"
+                icon={<Lock className="w-4 h-4 text-gray-500 mr-2 shrink-0" />}
                 className="!rounded-xl !border-gray-700 focus-within:!border-[#c4f82a] !px-4 !py-3"
               />
             </div>
@@ -198,10 +201,11 @@ export function TradingPasswordPage() {
             <StrongPasswordField
               value={newPwd}
               onChange={(v) => { setNewPwd(v); setStatus({ kind: 'idle' }); }}
-              placeholder="Enter a 6-digit fund password"
+              placeholder="Enter your new fund password"
               maxLength={6}
               inputMode="numeric"
               autoComplete="new-password"
+              icon={<Lock className="w-4 h-4 text-gray-500 mr-2 shrink-0" />}
               className="!rounded-xl !border-gray-700 focus-within:!border-[#c4f82a] !px-4 !py-3"
             />
             <div className="text-xs text-gray-500 mt-2">Fund password must be exactly 6 digits</div>
@@ -209,14 +213,15 @@ export function TradingPasswordPage() {
 
           {/* Confirm Password */}
           <div>
-            <label className="text-sm text-gray-400 mb-2 block">Confirm Fund Password</label>
+            <label className="text-sm text-gray-400 mb-2 block">Confirm New Fund Password</label>
             <StrongPasswordField
               value={confirmPwd}
               onChange={(v) => { setConfirmPwd(v); setStatus({ kind: 'idle' }); }}
-              placeholder="Re-enter the fund password"
+              placeholder="Enter new fund password again"
               maxLength={6}
               inputMode="numeric"
               autoComplete="new-password"
+              icon={<Lock className="w-4 h-4 text-gray-500 mr-2 shrink-0" />}
               className="!rounded-xl !border-gray-700 focus-within:!border-[#c4f82a] !px-4 !py-3"
             />
           </div>

@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS `fund_records` (
   `amount`      DECIMAL(18,2) NOT NULL COMMENT '变动金额 (负=扣款)',
   `after`       DECIMAL(18,2) NOT NULL COMMENT '变动后余额',
   `type`        VARCHAR(32)  NOT NULL COMMENT '后台充值 / 后台扣款 / 会员下单 / 下推盈利 / 会员提现',
-  `notes`       VARCHAR(255) DEFAULT '' COMMENT '备注',
+  `notes`       TEXT COMMENT '备注',
   `time`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_member` (`member_id`),

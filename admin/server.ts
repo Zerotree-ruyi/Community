@@ -291,11 +291,12 @@ function deny(res: any, code = "forbidden", message = "权限不足") {
 
 // 列出可见客户时附加的过滤条件(返回空串 = 不限制;否则返回 WHERE 子句片段)
 //   注意:必须配合 `${scope}` 内联,不能走 `?` 参数(子句包含列名 + 操作符)
-async function memberScopeWhere(req: any): Promise<string> {
+async function memberScopeWhere(req: any, alias = ""): Promise<string> {
   const me = await getCurrentAdmin(req);
   if (!me) return " AND 1=0";   // 拿不到当前 admin → 一行都不返回
   if (me.role === "super") return "";
-  return ` AND agent_id = ${Number(me.id)}`;
+  const p = alias ? `${alias}.` : "";   // JOIN 了别的表时要带表名,否则 agent_id 会歧义
+  return ` AND ${p}agent_id = ${Number(me.id)}`;
 }
 
 // 单会员访问拦截 — 用于 :id 路径的所有 mutation / 详情接口
@@ -1513,40 +1514,50 @@ app.get("/api/members", async (req, res) => {
   try {
     const limit    = Math.min(Number(req.query.limit  ?? 50), 200);
     const offset   = Number(req.query.offset ?? 0);
-    const status   = req.query.status  !== undefined && req.query.status  !== "" ? `AND status = ${mysql.escape(req.query.status)}` : "";
-    const type     = req.query.type    !== undefined && req.query.type    !== "" ? `AND type = ${mysql.escape(req.query.type)}` : "";
-    const kyc      = req.query.kyc     !== undefined && req.query.kyc     !== "" ? `AND kyc_status = ${mysql.escape(req.query.kyc)}` : "";
+    const status   = req.query.status  !== undefined && req.query.status  !== "" ? `AND m.status = ${mysql.escape(req.query.status)}` : "";
+    const type     = req.query.type    !== undefined && req.query.type    !== "" ? `AND m.type = ${mysql.escape(req.query.type)}` : "";
+    const kyc      = req.query.kyc     !== undefined && req.query.kyc     !== "" ? `AND m.kyc_status = ${mysql.escape(req.query.kyc)}` : "";
     const keyword  = String(req.query.keyword ?? "").trim();
     // 纯整数(含 0) → 精确按 id 查(避免 account LIKE '%1%' 把一堆含 "1" 的账号全捞出来)
     // 其他文本 → 按 account / invite_code 模糊查
     const isPureInt = /^\d{1,19}$/.test(keyword);
     const kw = keyword
       ? (isPureInt
-          ? `AND id = ${Number(keyword)}`
-          : `AND (account LIKE ${mysql.escape(`%${keyword}%`)} OR invite_code LIKE ${mysql.escape(`%${keyword}%`)})`)
+          ? `AND m.id = ${Number(keyword)}`
+          : `AND (m.account LIKE ${mysql.escape(`%${keyword}%`)} OR m.invite_code LIKE ${mysql.escape(`%${keyword}%`)})`)
       : "";
     // 数据归属过滤 — super 看全部,普通员工只看自己的客户
-    const scope = await memberScopeWhere(req);
+    const scope = await memberScopeWhere(req, "m");
 
+    // pending_withdraw = 该会员"申请中"的提现总额(提现中的钱)
+    //   注意:提现申请只扣 balance,不动 frozen —— frozen 只是后台手动冻结的金额,
+    //   所以这个数跟余额、冻结都不重叠,是独立的第三个数。
     const [rows] = await db.query(
-      `SELECT id, account, status, balance, frozen, credit, win_mode, tag, direction,
-              ban_order, ban_withdraw, agent_id, invite_code, type,
-              kyc_status, register_time, first_login_time, first_login_ip,
-              last_login_time, last_login_ip
-         FROM members
+      `SELECT m.id, m.account, m.status, m.balance, m.frozen, m.credit, m.win_mode, m.tag, m.direction,
+              m.ban_order, m.ban_withdraw, m.agent_id, m.invite_code, m.type,
+              m.kyc_status, m.register_time, m.first_login_time, m.first_login_ip,
+              m.last_login_time, m.last_login_ip,
+              COALESCE(w.pending_amount, 0) AS pending_withdraw
+         FROM members m
+         LEFT JOIN (
+              SELECT member_id, SUM(amount) AS pending_amount
+                FROM withdrawals
+               WHERE status = '申请中'
+               GROUP BY member_id
+         ) w ON w.member_id = m.id
         WHERE 1=1 ${status} ${type} ${kyc} ${kw} ${scope}
-        ORDER BY register_time DESC
+        ORDER BY m.register_time DESC
         LIMIT ? OFFSET ?`,
       [limit, offset]
     );
     const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM members WHERE 1=1 ${status} ${type} ${kyc} ${kw} ${scope}`
+      `SELECT COUNT(*) AS total FROM members m WHERE 1=1 ${status} ${type} ${kyc} ${kw} ${scope}`
     );
     const [[{ normal }]]   = await db.query(
-      `SELECT COUNT(*) AS normal FROM members WHERE status = 1 ${scope}`
+      `SELECT COUNT(*) AS normal FROM members m WHERE m.status = 1 ${scope}`
     );
     const [[{ disabled }]] = await db.query(
-      `SELECT COUNT(*) AS disabled FROM members WHERE status = 0 ${scope}`
+      `SELECT COUNT(*) AS disabled FROM members m WHERE m.status = 0 ${scope}`
     );
     res.json({ data: rows, total, normal, disabled });
   } catch (err: any) {
@@ -1715,7 +1726,23 @@ app.post("/api/members/:id/toggle-status", async (req, res) => {
 // 归属过滤:非 super 员工只统计自己名下客户的数据
 app.get("/api/stats", async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    // "今天"按印度时区(UTC+5:30)算 ——
+    //   前台所有时间都按 IST 显示(见 src/app/utils/date.ts),凌晨(IST 00:00–05:30)
+    //   做的上分/提现也得算进"今天",不能按 UTC 日期切。
+    //   库里的 DATETIME 是 MySQL 服务器本地时间(写入用的 NOW()),
+    //   服务器在 UTC 还是 IST 都不一定 —— 所以偏移量运行时问 MySQL 要,不写死。
+    const [[tzRow]] = await db.query(
+      `SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), NOW()) AS tzOffMin`
+    );
+    const tzOffMin = Number(tzRow?.tzOffMin ?? 0) || 0;
+    const IST_OFFSET_MIN = 330;
+    // 服务器本地时间 → IST 墙上时钟,需要加的分钟数
+    const toISTMin = IST_OFFSET_MIN - tzOffMin;
+    const toIST = `+ INTERVAL ${toISTMin} MINUTE`;
+    // 今天(IST)的日期 —— 以 MySQL 的 UTC 时钟为准
+    const [[{ istToday }]] = await db.query(
+      `SELECT DATE(UTC_TIMESTAMP() + INTERVAL ${IST_OFFSET_MIN} MINUTE) AS istToday`
+    );
     const me = await getCurrentAdmin(req);
     if (!me) return deny(res, "no_admin", "未识别管理员");
     const isSuper = me.role === "super";
@@ -1725,9 +1752,6 @@ app.get("/api/stats", async (req, res) => {
     const wdJoin   = isSuper ? "" : " JOIN members m ON m.id = w.member_id";
     const wdFilter = isSuper ? "" : " AND m.agent_id = ?";
     const wdParams = isSuper ? [] : [me.id];
-    const rcJoin   = isSuper ? "" : " JOIN members m ON m.id = r.member_id";
-    const rcFilter = isSuper ? "" : " AND m.agent_id = ?";
-    const rcParams = isSuper ? [] : [me.id];
 
     const [[{ members }]] = await db.query(
       `SELECT COUNT(*) AS members FROM members WHERE 1=1 ${memberFilter}`,
@@ -1735,8 +1759,8 @@ app.get("/api/stats", async (req, res) => {
     );
     const [[{ todayMembers }]] = await db.query(
       `SELECT COUNT(*) AS todayMembers FROM members
-        WHERE DATE(register_time) = ? ${memberFilter}`,
-      [today, ...memberParams]
+        WHERE DATE(register_time ${toIST}) = ? ${memberFilter}`,
+      [istToday, ...memberParams]
     );
     const [[{ pendingWithdrawals }]] = await db.query(
       `SELECT COUNT(*) AS pendingWithdrawals
@@ -1747,14 +1771,19 @@ app.get("/api/stats", async (req, res) => {
     const [[{ todayWithdraw }]] = await db.query(
       `SELECT COALESCE(SUM(amount),0) AS todayWithdraw
          FROM withdrawals w ${wdJoin}
-        WHERE DATE(w.apply_time) = ? ${wdFilter}`,
-      [today, ...wdParams]
+        WHERE DATE(w.apply_time ${toIST}) = ? ${wdFilter}`,
+      [istToday, ...wdParams]
     );
+    // 今日入款 = 今天后台**手动上分**的总额
+    //   ⚠ 原来读的是 recharges 表 —— 那张表是给"会员提交充值申请 → 后台审批"设计的,
+    //     但那条流程从来没实现(全代码没有任何一处 INSERT recharges),
+    //     所以读它永远是 0。会员在前台也没法发起充值(充值页只提示"请联系老师")。
+    //   实际上分走的是 fund_records:type='后台充值'、amount 为正。
     const [[{ todayRecharge }]] = await db.query(
       `SELECT COALESCE(SUM(amount),0) AS todayRecharge
-         FROM recharges r ${rcJoin}
-        WHERE DATE(r.apply_time) = ? ${rcFilter}`,
-      [today, ...rcParams]
+         FROM fund_records f
+        WHERE f.type = '后台充值' AND DATE(f.time ${toIST}) = ? ${memberFilter}`,
+      [istToday, ...memberParams]
     );
     res.json({
       members,
@@ -1781,10 +1810,8 @@ app.get("/api/withdrawals", async (req, res) => {
       ? `AND w.member_id IN (SELECT id FROM members WHERE account = ${mysql.escape(req.query.member_account)})`
       : "";
     // 数据归属过滤 — 非 super 只看自己客户的提现
-    const scope = await memberScopeWhere(req);
-    // scope 返回 " AND agent_id = N",但当前 SQL 没 JOIN members 时不能用
-    // 这里已 JOIN m,所以把 "agent_id = N" 改成 "m.agent_id = N"
-    const adminScope = scope ? scope.replace("agent_id", "m.agent_id") : "";
+    // 这里 SQL 里 JOIN 了 members m,所以归属条件要带表名(m.agent_id)
+    const adminScope = await memberScopeWhere(req, "m");
 
     const [rows] = await db.query(
       `SELECT w.*, m.account AS member_account
@@ -2097,16 +2124,36 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
       [newBalance, m.id]
     );
 
-    await conn.query(
-      `INSERT INTO fund_records (agent_id, invite_code, member_id, \`before\`, amount, \`after\`, type, notes, time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [
-        m.agent_id, m.invite_code, m.id,
-        Number(m.balance), amount, newBalance,
-        "会员提现",
-        `Withdrawal#${w.id} rejected refund reason:${rejectReason}`,
-      ]
-    );
+    // 拒绝原因要写进资金流水备注。老库 fund_records.notes 是 VARCHAR(255),
+    // 拒绝理由一长(255 - 前缀约 36 字符)就直接报
+    // "Data too long for column 'notes' at row 1",把整个退款事务搞失败。
+    // 这里:① 按大上限截断(迁移成 TEXT 后能完整存下);
+    //       ② 万一老库还没跑迁移、还是超长,退回插入短版本,保证退款一定成功。
+    const refundNote = `Withdrawal#${w.id} rejected refund reason:${rejectReason}`;
+    try {
+      await conn.query(
+        `INSERT INTO fund_records (agent_id, invite_code, member_id, \`before\`, amount, \`after\`, type, notes, time)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          m.agent_id, m.invite_code, m.id,
+          Number(m.balance), amount, newBalance,
+          "会员提现",
+          refundNote.slice(0, 2000),
+        ]
+      );
+    } catch (e: any) {
+      if (e?.code !== "ER_DATA_TOO_LONG") throw e;
+      await conn.query(
+        `INSERT INTO fund_records (agent_id, invite_code, member_id, \`before\`, amount, \`after\`, type, notes, time)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          m.agent_id, m.invite_code, m.id,
+          Number(m.balance), amount, newBalance,
+          "会员提现",
+          refundNote.slice(0, 240),
+        ]
+      );
+    }
 
     await conn.query(
       `UPDATE withdrawals

@@ -36,6 +36,8 @@ export interface Member {
   status: number;
   balance: string | number;
   frozen: string | number;
+  /** 提现中的金额(申请中提现单合计) */
+  pending_withdraw: string | number;
   credit: string;
   tag: string;
   direction: "涨" | "跌";
