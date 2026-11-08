@@ -471,6 +471,46 @@ npx tsx server.ts
 
 > 🎯 这一步的效果:**外部访问 `http://47.236.95.137/api/health` 会被 Nginx 转到 `http://127.0.0.1:3001/api/health`** — 也就是 PM2 跑的那个后端。
 
+### 3.10 配置 SSE(后台改信用分 → 前台秒级更新)
+
+前台会员页靠 **SSE 长连接**(`/api/members/<id>/stream`)接收后台的实时推送。
+SSE 是一条**一直不关的连接**,Nginx 默认会把它**攒着一起发**(缓冲),那就跟没实时一样。
+
+**A 台和 B 台都要加下面这段**(宝塔 → 网站 → 设置 → 配置文件,粘到 `server { }` 里面,
+跟 `location /api/ { }` **同级**):
+
+```nginx
+# ─── SSE 实时推送(会员信用分/余额)────────────────────────────────
+# 必须放在普通 location /api/ 前面,nginx 按前缀最长匹配,不会冲突;
+# 关键是 proxy_buffering off —— 不缓冲才能"后台一改,前台立刻看到"。
+location ~ ^/api/members/\d+/stream$ {
+    proxy_pass http://47.236.95.137:3001;   # A 台用 B 台;B 台用 http://127.0.0.1:3001
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection        '';
+    proxy_buffering    off;          # ← 关键:不缓冲
+    proxy_cache        off;
+    chunked_transfer_encoding on;
+    proxy_connect_timeout 10s;
+    proxy_read_timeout    3600s;    # 长连接,别 60s 就断
+    proxy_send_timeout    3600s;
+}
+```
+
+> ⚠️ **A 台和 B 台都要加**。少了任何一层的 `proxy_buffering off`,前台就会退化成
+> "还是要等十几秒才更新"(虽然后端一直在推)。后端响应里已经带了
+> `X-Accel-Buffering: no`,但显式写 `proxy_buffering off` 更保险。
+
+加完在宝塔点 **保存**(会自动 `nginx -t` 检查),然后:
+
+```bash
+# 自测:应该看到 data: 开头的推送内容
+curl -N http://127.0.0.1:3001/api/members/1/stream
+```
+
 ### 3.11 B 台防火墙
 
 宝塔左侧菜单 → **安全** → 放行端口(顶部有「放行端口」按钮):
@@ -620,6 +660,10 @@ Compress-Archive -Path * -DestinationPath "..\trade-frontend.zip" -Force
 点 **提交**。
 
 > 🎯 这一步的效果:浏览器访问 `http://47.236.172.111/api/health` → A 台 Nginx 转到 `http://47.236.95.137/api/health` → B 台 Nginx 转到 `http://127.0.0.1:3001/api/health`(PM2)。
+
+> 🔔 **别忘了 SSE 的 nginx 配置**(§3.10):A 台这边也要加
+> `location ~ ^/api/members/\d+/stream$ { ... proxy_buffering off; ... }`。
+> 不加的话前台信用分会退回"等十几秒才更新"。
 
 ### 4.6 A 台防火墙
 
@@ -1096,6 +1140,8 @@ C 台 (C.C.C.C,异地备份):
 - [ ] B 台 Nginx `location /api/` 已加,`curl http://47.236.95.137/api/health` 返回 200
 - [ ] A 台 `dist/` 已上传到 `/www/wwwroot/trade/dist/`
 - [ ] A 台 Nginx 配置已加 `location /api/ { proxy_pass http://47.236.95.137:80/api/; }`
+- [ ] A 台 Nginx 已加 SSE 的 `location ~ ^/api/members/\d+/stream$`(**`proxy_buffering off`**)
+- [ ] B 台 Nginx 已加 SSE 的 `location ~ ^/api/members/\d+/stream$`(**`proxy_buffering off`**)
 - [ ] A 台 `curl http://47.236.172.111/api/health` 返回 200(说明前后台贯通)
 - [ ] 浏览器访问 `http://47.236.172.111` 看到登录页
 

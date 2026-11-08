@@ -205,11 +205,100 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 定期 poll /api/auth/me,及时发现后台「强制下线」
   //  - 登录中:每 15 秒检查一次
   //  - 未登录:不轮询
+  //  (这只是兜底;真正的实时更新靠下面的 SSE 推送)
   useEffect(() => {
     if (!user) return;
     const id = setInterval(() => { refresh(); }, 15_000);
     return () => clearInterval(id);
   }, [user, refresh]);
+
+  // ─── 实时推送(SSE)────────────────────────────────────────────────────────────
+  // 后台改了信用分 / 余额 / 冻结 / 状态,后端会立刻通过这条流推过来,
+  // 前台不用等 15 秒轮询就能看到新值。
+  //
+  // 浏览器 EventSource 自带断线重连,所以这里不用自己写重试逻辑;
+  // 连不上时会退回到上面的 15 秒轮询,功能不受影响。
+  useEffect(() => {
+    const memberId = user?.id;
+    if (!memberId) return;
+
+    let source: EventSource | null = null;
+    let closed = false;
+
+    // EventSource 不能自定义 header,会话令牌只能走 query
+    const token = user?.session_token ? `?token=${encodeURIComponent(user.session_token)}` : '';
+    try {
+      source = new EventSource(`/api/members/${memberId}/stream${token}`);
+    } catch {
+      source = null;
+    }
+    if (!source) return;
+
+    source.onmessage = (ev) => {
+      if (closed) return;
+      let payload: any;
+      try {
+        payload = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      const m = payload?.member;
+      if (!m) return;
+
+      setUser((prev) => {
+        if (!prev || Number(prev.id) !== Number(m.id)) return prev;
+
+        // 会话令牌被旋转 → 后台踢人(和 refresh() 里的判断一致)
+        if (prev.session_token && m.session_token && prev.session_token !== m.session_token) {
+          try {
+            sessionStorage.setItem(
+              'exchange_kicked_msg',
+              'Your account has been logged in on another device or forcibly logged out by an administrator'
+            );
+          } catch { /* ignore */ }
+          try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+          try { window.location.assign('/login'); } catch { /* ignore */ }
+          return null;
+        }
+
+        // 账号被后台禁用 → 立刻下线(不用等 15 秒轮询)
+        if (Number(m.status) === 0 && Number(prev.status) !== 0) {
+          try {
+            sessionStorage.setItem('exchange_kicked_msg', 'Your account has been disabled');
+          } catch { /* ignore */ }
+          try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+          try { window.location.assign('/login'); } catch { /* ignore */ }
+          return null;
+        }
+
+        const next: User = {
+          ...prev,
+          balance: Number(m.balance ?? prev.balance),
+          frozen: Number(m.frozen ?? prev.frozen),
+          credit: String(m.credit ?? prev.credit),
+          status: Number(m.status ?? prev.status),
+          session_token: m.session_token ?? prev.session_token,
+        };
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+        return next;
+      });
+    };
+
+    // 连接出问题一般交给 EventSource 自己重连,避免和轮询打架。
+    // 但有一种是"重连也没用"的:服务端没有这个接口(404 / Content-Type 不对)
+    // —— 这时浏览器会把 readyState 置成 CLOSED 并且不再重连。
+    // 这时我们主动 close() 关掉,前台退回 15 秒轮询,只是慢一点,不会一直报错。
+    source.onerror = () => {
+      if (source && source.readyState === 2 /* CLOSED */) {
+        try { source.close(); } catch { /* ignore */ }
+      }
+    };
+
+    return () => {
+      closed = true;
+      try { source?.close(); } catch { /* ignore */ }
+    };
+  }, [user?.id, user?.session_token]);
 
   return (
     <AuthContext.Provider value={{ user, loading, error, login, register, logout, clearError, refresh }}>

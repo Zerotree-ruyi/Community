@@ -17,7 +17,32 @@
 const http = require('http');
 const mysql = require('mysql2/promise');
 
-const BASE = 'http://localhost:5175';
+// 默认连后台 dev(5174);端口可用 ADMIN_BASE 覆盖
+const BASE = process.env.ADMIN_BASE || 'http://localhost:5174';
+
+// 资金密码在前台提交前会先过一遍 safePwd(14 位 base62 混淆),
+// 后端只认混淆后的串 —— 这里必须同样混淆,否则注册会被 RE_FUND_PWD 拦掉。
+// 登录密码**不**混淆,原样发。
+const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+function fnv1aHash(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
+}
+function safePwd(input) {
+  let n = fnv1aHash(input);
+  n = (n * 0x9e3779b1) >>> 0;
+  let out = '';
+  for (let i = 0; i < 14; i++) {
+    out += BASE62[n % 62];
+    n = Math.floor(n / 62) || fnv1aHash(input + i);
+  }
+  return out;
+}
+const FUND_PWD = safePwd('123456');
 let pass = 0, fail = 0;
 const log = (ok, msg, extra) => {
   if (ok) { pass++; console.log(`✅ ${msg}`); }
@@ -69,22 +94,22 @@ const main = async () => {
   const reg = await req('POST', '/api/auth/register', {
     account: testAccount,
     password: 'Pass1234',
-    fundPassword: '123456',
-    fundPasswordConfirm: '123456',
+    fundPassword: FUND_PWD,
+    fundPasswordConfirm: FUND_PWD,
     inviteCode: superInviteCode,
   });
   log(reg.status === 201 && !!reg.body?.user?.id, 'B1 会员注册', reg.body);
   const memberId = reg.body?.user?.id;
 
   const dupReg = await req('POST', '/api/auth/register', {
-    account: testAccount, password: 'Pass1234', fundPassword: '123456',
-    fundPasswordConfirm: '123456', inviteCode: superInviteCode,
+    account: testAccount, password: 'Pass1234', fundPassword: FUND_PWD,
+    fundPasswordConfirm: FUND_PWD, inviteCode: superInviteCode,
   });
   log(dupReg.status === 409 && dupReg.body?.error === 'account_taken', 'B2 重复注册应 409 account_taken', dupReg.body);
 
   const badReg = await req('POST', '/api/auth/register', {
-    account: `bad_${ts}`, password: 'Pass1234', fundPassword: '123456',
-    fundPasswordConfirm: '123456', inviteCode: 'WRONG99',
+    account: `bad_${ts}`, password: 'Pass1234', fundPassword: FUND_PWD,
+    fundPasswordConfirm: FUND_PWD, inviteCode: 'WRONG99',
   });
   log(badReg.status === 400 && /invalid_invite_code|retired/.test(badReg.body?.error || ''),
     'B3 错误邀请码应 400', badReg.body);
@@ -111,10 +136,19 @@ const main = async () => {
   log(addBank.status === 201 && !!addBank.body?.id, 'D1 加银行卡钱包', addBank.body);
   const bankWalletId = addBank.body?.id;
 
+  // 数字钱包要 VIP5(后端兜底,前端也拦)。新会员默认 VIP1 → 先测被拦,再升 VIP 再加。
+  const digitalDenied = await req('POST', `/api/members/${memberId}/wallets/digital`, {
+    type1: 'USDT', type2: 'TRC20', address: 'TXxx...mockaddress', is_default: true, notes: '主钱包',
+  }, { 'X-Admin-Id': String(superId) });
+  log(digitalDenied.status === 403 && digitalDenied.body?.error === 'vip_required',
+    'D2a VIP1 加数字币钱包应 403 vip_required', digitalDenied.body);
+
+  await req('PUT', `/api/members/${memberId}`, { credit: '100|5' }, { 'X-Admin-Id': String(superId) });
+
   const addDigital = await req('POST', `/api/members/${memberId}/wallets/digital`, {
     type1: 'USDT', type2: 'TRC20', address: 'TXxx...mockaddress', is_default: true, notes: '主钱包',
   }, { 'X-Admin-Id': String(superId) });
-  log(addDigital.status === 201 && !!addDigital.body?.id, 'D2 加数字币钱包', addDigital.body);
+  log(addDigital.status === 201 && !!addDigital.body?.id, 'D2b VIP5 加数字币钱包', addDigital.body);
   const digitalWalletId = addDigital.body?.id;
 
   const bankList = await req('GET', `/api/members/${memberId}/wallets/bank`, null, { 'X-Admin-Id': String(superId) });
@@ -150,10 +184,12 @@ const main = async () => {
   const myFunds = await req('GET', `/api/funds/mine?member_id=${memberId}`);
   log(myFunds.status === 200 && myFunds.body?.data?.length >= 1, 'F3 会员看自己资金流水', myFunds.body?.data?.length);
 
-  // 余额应冻结 100
+  // 下单只扣 balance,**不动 frozen**(frozen 只表示后台手动冻结的金额,
+  // 见 migrations/2026_frozen_admin_only.sql)
   const memberInfo = await req('POST', '/api/auth/login', { account: testAccount, password: 'Pass1234' });
-  log(Number(memberInfo.body?.user?.frozen) === 100 && Number(memberInfo.body?.user?.balance) === 9900,
-    'F4 余额冻结 100,可用 9900', { balance: memberInfo.body?.user?.balance, frozen: memberInfo.body?.user?.frozen });
+  log(Number(memberInfo.body?.user?.balance) === 9900 && Number(memberInfo.body?.user?.frozen) === 0,
+    'F4 下单扣 balance 100,可用 9900,frozen 不变(仍为 0)',
+    { balance: memberInfo.body?.user?.balance, frozen: memberInfo.body?.user?.frozen });
 
   // 等 32s 触发结算
   console.log('  (等待 32 秒让订单到期...)');
@@ -178,7 +214,7 @@ const main = async () => {
     wallet_type: 'bank',
     wallet_id: bankWalletId,
     amount: 500,
-    fund_password: '123456',
+    fund_password: FUND_PWD,
   });
   log(withdraw.status === 200 && !!withdraw.body?.withdrawal?.id, 'G1 会员申请提现 500', withdraw.body);
   const withdrawId = withdraw.body?.withdrawal?.id;
@@ -232,7 +268,13 @@ const main = async () => {
   // ─── 阶段 J:清理 ───
   console.log('\n══ J. 清理测试数据 ══');
   try {
-    const c = await mysql.createConnection({ host: '127.0.0.1', user: 'root', database: 'zero' });
+    const c = await mysql.createConnection({
+      host: process.env.DB_HOST || '127.0.0.1',
+      port: Number(process.env.DB_PORT || 3306),
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASS || '',
+      database: process.env.DB_NAME || 'exchange_db',
+    });
     await c.execute('DELETE FROM messages WHERE member_id = ?', [memberId]);
     await c.execute('DELETE FROM fund_records WHERE member_id = ?', [memberId]);
     await c.execute('DELETE FROM withdrawals WHERE member_id = ?', [memberId]);

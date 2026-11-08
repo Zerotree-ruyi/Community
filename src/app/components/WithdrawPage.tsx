@@ -62,6 +62,17 @@ export function WithdrawPage() {
     })();
   }, [user?.id]);
 
+  // 信用分 / 余额跟着登录态实时走 ——
+  //   后台一改信用分,SSE 会把新值推进 AuthContext,这里立刻跟着变,
+  //   不用等这个页面重新拉数据(否则信用分门槛判断会用旧值)。
+  useEffect(() => {
+    if (user?.credit != null) setCreditRaw(String(user.credit));
+  }, [user?.credit]);
+
+  useEffect(() => {
+    if (user?.balance != null) setBalance(Number(user.balance));
+  }, [user?.balance]);
+
   // 查在途提现 — 同一时间只允许一笔
   useEffect(() => {
     if (!user?.id) return;

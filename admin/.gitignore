@@ -13,6 +13,9 @@ logs/
 .claude-replay.*
 .tmp-*
 
+# 本地测试脚本的 Chrome profile 和截图(见 scripts/README.md)
+.cdp-cache/
+
 # Platform-managed agentplat state, not project source. In the
 # client-initiated single-repo workspace layout (make's `Path: "."` spec) the
 # repo root IS the workspace root, so these land inside this repo rather than

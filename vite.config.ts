@@ -40,7 +40,8 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // 默认转本地后端;要用别的后端实例时:VITE_API_TARGET=http://localhost:3002 npm run dev
+        target: process.env.VITE_API_TARGET || 'http://localhost:3001',
         changeOrigin: true,
       },
     },

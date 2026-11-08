@@ -40,6 +40,75 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ─── 会员实时推送(SSE)────────────────────────────────────────────────────────
+// 需求:后台改了会员的信用分/余额/冻结/状态,会员正在开着的页面要立刻看到,
+//       不能等前台 15 秒轮询。
+//
+// 做法:会员页面用 EventSource 订阅 /api/members/:id/stream,
+//       后台每次改这个会员,就把最新快照推给所有订阅者。
+// 为什么不用 WebSocket:这是单向推送(后端 → 前台),SSE 走普通 HTTP,
+// nginx 反代不用额外配置,浏览器还自带断线重连。
+//
+// 注意:
+//   - 心跳每 25 秒一次,防止 nginx / 运营商掐掉空闲连接
+//   - 订阅者断开时从 Set 里删掉,避免内存泄漏
+type MemberEvent = {
+  type: "member-updated";
+  member: {
+    id: number;
+    balance: string;
+    frozen: string;
+    credit: string;
+    status: number;
+    session_token: string | null;
+  };
+};
+
+const memberStreams = new Map<number, Set<express.Response>>();
+
+/** 把某个会员的最新状态推给所有订阅者 */
+function pushMemberUpdate(memberId: number) {
+  const subs = memberStreams.get(memberId);
+  if (!subs || subs.size === 0) return;
+  void (async () => {
+    try {
+      const [rows] = await db.query(
+        `SELECT id, balance, frozen, credit, status, session_token FROM members WHERE id = ? LIMIT 1`,
+        [memberId]
+      );
+      const m = (rows as any[])[0];
+      if (!m) return;
+      const payload: MemberEvent = {
+        type: "member-updated",
+        member: {
+          id: Number(m.id),
+          balance: String(m.balance),
+          frozen: String(m.frozen),
+          credit: String(m.credit ?? "0|1"),
+          status: Number(m.status),
+          session_token: m.session_token ?? null,
+        },
+      };
+      const data = `data: ${JSON.stringify(payload)}\n\n`;
+      for (const res of subs) {
+        try {
+          res.write(data);
+        } catch {
+          // 连接已断,交给 close 事件清理
+          subs.delete(res);
+        }
+      }
+    } catch {
+      /* 推送失败不影响主流程 */
+    }
+  })();
+}
+
+/** 会员状态变化后调用 —— 信用分/余额/冻结/状态/被踢下线 */
+function notifyMemberChanged(memberId: number) {
+  pushMemberUpdate(memberId);
+}
+
 // 请求日志(静默高频 settle-due 兜底,避免 2 秒一条刷屏)
 app.use((req, _res, next) => {
   if (req.path !== "/api/orders/settle-due") {
@@ -1677,6 +1746,8 @@ app.put("/api/members/:id", async (req, res) => {
          FROM members WHERE id = ?`,
       [memberId]
     );
+    // 立刻推给前台(会员正在开着的页面马上看到新信用分/余额,不用等轮询)
+    notifyMemberChanged(memberId);
     res.json({ ok: true, member: (rows as any[])[0] });
   } catch (err: any) {
     console.error("[members PUT]", err);
@@ -1707,6 +1778,68 @@ app.get("/api/auth/me", async (req, res) => {
   }
 });
 
+// 会员实时状态流(SSE)—— GET /api/members/:id/stream
+//   后台改了信用分/余额/冻结/状态,这里立刻推给前台,前台不用等 15 秒轮询。
+//
+// 用 EventSource 订阅(浏览器自带断线重连):
+//   const es = new EventSource('/api/members/123/stream');
+//   es.onmessage = (e) => { const d = JSON.parse(e.data); /* d.member.credit ... */ };
+//
+// 心跳:每 25 秒发一行注释,防止中间的 nginx / 运营商把空闲连接掐掉。
+app.get("/api/members/:id/stream", async (req, res) => {
+  const memberId = Number(req.params.id);
+  if (!Number.isFinite(memberId) || memberId <= 0) {
+    return res.status(400).json({ error: "invalid_member_id", message: "Invalid member ID" });
+  }
+
+  // 确认会员存在(不存在就直接 404,别开一条空流)
+  const [rows] = await db.query(`SELECT id, session_token FROM members WHERE id = ? LIMIT 1`, [memberId]);
+  const member = (rows as any[])[0];
+  if (!member) {
+    return res.status(404).json({ error: "not_found", message: "Member does not exist" });
+  }
+
+  // 会话校验:会员有 session_token 就必须带上,而且要对得上。
+  // (EventSource 不能自定义 header,所以 token 只能走 query)
+  // 对不上就 401 —— 前台会自动退回 15 秒轮询,不影响功能。
+  const token = String(req.query.token ?? "");
+  if (member.session_token && token !== member.session_token) {
+    return res.status(401).json({ error: "invalid_token", message: "Session token mismatch" });
+  }
+
+  res.status(200).set({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    // 关键:告诉 nginx 不要缓冲这个响应,否则数据会被攒着一起发,就不实时了
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders?.();
+
+  if (!memberStreams.has(memberId)) memberStreams.set(memberId, new Set());
+  const subs = memberStreams.get(memberId)!;
+  subs.add(res);
+
+  // 立刻推一次当前状态(前端刚连上时不用等第一次变更)
+  pushMemberUpdate(memberId);
+
+  // 心跳
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(": ping\n\n");
+    } catch {
+      /* ignore */
+    }
+  }, 25_000);
+
+  // 断开时清理
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    subs.delete(res);
+    if (subs.size === 0) memberStreams.delete(memberId);
+  });
+});
+
 // 启用/禁用 切换
 app.post("/api/members/:id/toggle-status", async (req, res) => {
   try {
@@ -1716,6 +1849,7 @@ app.post("/api/members/:id/toggle-status", async (req, res) => {
     const access = await requireMemberAccess(req, res, memberId);
     if (!access) return;
     await db.query("UPDATE members SET status = 1 - status WHERE id = ?", [memberId]);
+    notifyMemberChanged(memberId);
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2068,6 +2202,7 @@ app.post("/api/withdrawals/:id/approve", async (req, res) => {
     );
 
     await conn.commit();
+    notifyMemberChanged(Number((wPre as any[])[0].member_id));
     res.json({ ok: true, withdrawal_id: wid, actual_amount: actAmt, frozen: newFrozen });
   } catch (err: any) {
     await conn.rollback();
@@ -2171,6 +2306,7 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
     );
 
     await conn.commit();
+    notifyMemberChanged(Number(w.member_id));
     res.json({ ok: true, withdrawal_id: wid, balance: newBalance, frozen: newFrozen });
   } catch (err: any) {
     await conn.rollback();
@@ -2804,6 +2940,7 @@ app.post("/api/members/:id/recharge", async (req, res) => {
       [adminId, reviewer, "recharge", memberId, JSON.stringify({ amount, notes }).slice(0, 240)]
     );
     await conn.commit();
+    notifyMemberChanged(memberId);
     res.json({
       ok: true,
       record_id: (insertRes as any).insertId,
@@ -2857,6 +2994,7 @@ app.post("/api/members/:id/deduct", async (req, res) => {
       [adminId, reviewer, "deduct", memberId, JSON.stringify({ amount, notes }).slice(0, 240)]
     );
     await conn.commit();
+    notifyMemberChanged(memberId);
     res.json({
       ok: true,
       record_id: (insertRes as any).insertId,
@@ -2938,6 +3076,7 @@ app.post("/api/members/:id/freeze", async (req, res) => {
     );
 
     await conn.commit();
+    notifyMemberChanged(memberId);
     res.json({
       ok: true,
       account: m.account,

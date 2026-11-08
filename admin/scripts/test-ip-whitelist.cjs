@@ -5,7 +5,8 @@
  */
 const http = require('http');
 
-const BASE = 'http://localhost:5175';
+// 默认连后台 dev(5174);端口可用 ADMIN_BASE 覆盖
+const BASE = process.env.ADMIN_BASE || 'http://localhost:5174';
 let testPass = 0, testFail = 0;
 const log = (ok, msg, extra) => {
   if (ok) { testPass++; console.log(`✅ ${msg}`); }
@@ -55,15 +56,17 @@ const main = async () => {
   const create = await req('POST', '/api/admin/employees',
     { username: 'testemp', display_name: '测试员工', password: 'Test1234', role: 'admin' },
     { 'X-Admin-Id': String(superId) });
-  // 处理可能的冲突(已有 testemp — 先删除再建)
+  // 处理可能的冲突(上一次的 testemp 还在库里 —— 复用它,别当失败)
   let empId = create.body?.employee?.id;
-  if (!empId && create.body?.message?.includes('Duplicate')) {
+  const alreadyExists = create.body?.error === 'username_taken'
+    || String(create.body?.message ?? '').includes('Duplicate');
+  if (!empId && alreadyExists) {
     // 找现有 testemp id
     const list = await req('GET', '/api/admin/employees', null, { 'X-Admin-Id': String(superId) });
     const found = list.body?.items?.find(e => e.username === 'testemp');
     if (found) {
       empId = found.id;
-      console.log(`  ↳ 复用已有 testemp (id=${empId})`);
+      log(true, '1.2 创建员工 testemp(已存在,复用)', { id: empId });
     }
   } else {
     log(!!empId, '1.2 创建员工 testemp', create.body);
