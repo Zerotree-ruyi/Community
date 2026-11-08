@@ -70,6 +70,7 @@ Chrome 的 profile 和截图默认落在 `admin/.cdp-cache/`（已在 `.gitignor
 | `test-sidebar-collapsed.mjs` | 后台：侧栏顶到蓝色顶栏、收起/展开两种状态 |
 | `test-credit-live-update.mjs` | 后台：会员列表改信用分 → 列表**立刻**变（乐观更新） |
 | `test-front-credit-live-update.mjs` | 前台：后台改信用分 → **会员自己的页面立刻变**（SSE 实时推送，约 0.3 秒） |
+| `test-page-protection.mjs` | 页面保护：按 F12 被拦、页面显示版权警告、右键被禁（`node scripts/test-page-protection.mjs front\|admin`） |
 
 ### 数据库直查
 
