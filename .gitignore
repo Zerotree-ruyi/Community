@@ -46,3 +46,6 @@ lerna-debug.log*
 coverage/
 # 部署打包产物(本地生成,不入库)
 release/
+
+# B 台根路径版后台构建产物
+dist-root/
