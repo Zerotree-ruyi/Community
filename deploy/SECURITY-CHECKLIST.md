@@ -108,12 +108,18 @@ DB_NAME=zero
 PORT=3001
 
 # ── 安全开关 ────────────────────────────────────────────────
-# 前台已经跑在 HTTPS 上(A 台 coin-asia.cc 有 Let's Encrypt 证书)
+# 前台已经跑在 HTTPS 上(A 台 coinbase-in.com 有 Let's Encrypt 证书)
 COOKIE_SECURE=1
 ENABLE_HSTS=1
 
-# 跨域白名单(逗号分隔)。不填 = 只允许同源
-ALLOWED_ORIGINS=https://coin-asia.cc
+# 跨域白名单(逗号分隔)。不填 = 只允许同源。
+#
+#   后台面板挂在 coinbase-in.com/manager/,它的 API 走 coinbase-in.com/manager/api/ ——
+#   **同源**,后端还有「Origin 的 host == 请求的 host 就放行」的兜底判断,
+#   所以这里其实可以整个留空。留着也行,当第二道保险。
+#
+#   ⚠️ 千万别写 "*" —— 那等于对全网开放。
+ALLOWED_ORIGINS=https://coinbase-in.com
 
 # ⚠️ 生产绝对不要开这个 —— 开了等于又回到「谁都能当超管」
 ALLOW_LEGACY_ADMIN_HEADER=0
@@ -130,9 +136,9 @@ pm2 logs exchange-admin --lines 30     # 看有没有报错
 
 ## 阶段 3:改 nginx
 
-### 3.1 A 台(47.236.172.111 / coin-asia.cc)
+### 3.1 A 台(47.236.172.111 / coinbase-in.com)
 
-宝塔 → 网站 → coin-asia.cc → 设置 → 配置文件,照着 `deploy/nginx-bt-a-site.conf` 改:
+宝塔 → 网站 → coinbase-in.com → 设置 → 配置文件,照着 `deploy/nginx-bt-a-site.conf` 改:
 
 1. `/api/` 的 `proxy_pass` 从 `http://47.236.95.137:3001` 改成 `http://47.236.95.137:80`
 2. 新增 `/manager/`、`/manager/assets/`、`/manager/api/` 三段
@@ -186,9 +192,9 @@ A 台 /www/wwwroot/trade/manager/
 
 | 地址 | 期望 |
 |---|---|
-| `https://coin-asia.cc/manager/` (你的 IP) | 后台登录页 ✅ |
-| `https://coin-asia.cc/manager/login` (你的 IP) | 后台登录页 ✅ |
-| `https://coin-asia.cc/manager/` (别人的 IP) | **403** ✅ |
+| `https://coinbase-in.com/manager/` (你的 IP) | 后台登录页 ✅ |
+| `https://coinbase-in.com/manager/login` (你的 IP) | 后台登录页 ✅ |
+| `https://coinbase-in.com/manager/` (别人的 IP) | **403** ✅ |
 | `http://47.236.172.111:3001/` | **连不上** ✅ |
 | `http://47.236.95.137:3001/api/members/1` | **连不上** ✅ |
 | `http://47.236.95.137/api/members/1` | **403** ✅(B 台只放行 A 台) |
@@ -199,25 +205,25 @@ A 台 /www/wwwroot/trade/manager/
 
 ```bash
 # 会员数据
-curl -s -o /dev/null -w "%{http_code}\n" "https://coin-asia.cc/api/members/1"
-curl -s -o /dev/null -w "%{http_code}\n" "https://coin-asia.cc/api/auth/me?member_id=1"
-curl -s -o /dev/null -w "%{http_code}\n" "https://coin-asia.cc/api/funds/mine?member_id=1"
+curl -s -o /dev/null -w "%{http_code}\n" "https://coinbase-in.com/api/members/1"
+curl -s -o /dev/null -w "%{http_code}\n" "https://coinbase-in.com/api/auth/me?member_id=1"
+curl -s -o /dev/null -w "%{http_code}\n" "https://coinbase-in.com/api/funds/mine?member_id=1"
 # 银行卡列表(含身份证号)—— 之前这里是 200,现在必须 403
-curl -s -o /dev/null -w "%{http_code}\n" "https://coin-asia.cc/api/wallets/bank"
+curl -s -o /dev/null -w "%{http_code}\n" "https://coinbase-in.com/api/wallets/bank"
 # 冒充超管
-curl -s -o /dev/null -w "%{http_code}\n" -H "X-Admin-Id: 1" "https://coin-asia.cc/api/admin/employees"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-Admin-Id: 1" "https://coinbase-in.com/api/admin/employees"
 # 伪造后台令牌
-curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer deadbeef" "https://coin-asia.cc/api/admin/employees"
+curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer deadbeef" "https://coinbase-in.com/api/admin/employees"
 # 实时推送 —— 以前改个 URL 里的 id 就能订阅别人的余额/信用分
-curl -s -o /dev/null -w "%{http_code}\n" "https://coin-asia.cc/api/members/1/stream"
-curl -s -o /dev/null -w "%{http_code}\n" "https://coin-asia.cc/api/members/1/stream?token=deadbeef"
+curl -s -o /dev/null -w "%{http_code}\n" "https://coinbase-in.com/api/members/1/stream"
+curl -s -o /dev/null -w "%{http_code}\n" "https://coinbase-in.com/api/members/1/stream?token=deadbeef"
 # 期望:上面全部 403 / 401
 ```
 
 > 💡 一次性全扫一遍(只发 GET/OPTIONS,不写任何数据,可以直接对着生产跑):
 > ```bash
 > cd admin
-> SCAN_B_API=https://coin-asia.cc node scripts/scan-prod-readonly-audit.mjs
+> SCAN_B_API=https://coinbase-in.com node scripts/scan-prod-readonly-audit.mjs
 > # 期望最后一行:✅ 免密一个都读不到 —— 符合预期
 > ```
 

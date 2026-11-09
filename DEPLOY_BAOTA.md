@@ -1103,7 +1103,7 @@ mysqlbinlog --stop-datetime='2026-09-16 14:23:45' /www/server/data/mysql-bin.* |
 
 > 这一节是 2026-11 的加固补丁。**完整、可逐条打勾的清单在
 > [`deploy/SECURITY-CHECKLIST.md`](deploy/SECURITY-CHECKLIST.md)**,本节只讲
-> 「后台不再用裸 IP 访问,改成 `https://coin-asia.cc/manager/`」这件事。
+> 「后台不再用裸 IP 访问,改成 `https://coinbase-in.com/manager/`」这件事。
 
 ### 10.1 为什么要改
 
@@ -1119,10 +1119,10 @@ mysqlbinlog --stop-datetime='2026-09-16 14:23:45' /www/server/data/mysql-bin.* |
 ```
 公网 → A台 47.236.172.111 :443  →  B台 47.236.95.137 :80  →  127.0.0.1:3001  →  127.0.0.1:3306
         │                            └─ 只允许 A 台 IP 访问
-        └─ https://coin-asia.cc/manager/  ← 后台入口(带目录,不是裸 IP)
+        └─ https://coinbase-in.com/manager/  ← 后台入口(带目录,不是裸 IP)
 ```
 
-A 台本来就有 `coin-asia.cc` 的 Let's Encrypt 证书,所以后台跟前台**同源**,
+A 台本来就有 `coinbase-in.com` 的 Let's Encrypt 证书,所以后台跟前台**同源**,
 不用再单独搞一套 HTTPS,cookie 和 CORS 也简单。
 
 ### 10.2 后台构建(带目录前缀)
@@ -1230,7 +1230,7 @@ B 台 `admin/.env`:
 
 ```ini
 # 只允许这几个 Origin 调接口(前台域名 + 后台同源)。留空 = 不允许任何跨域。
-ALLOWED_ORIGINS=https://coin-asia.cc
+ALLOWED_ORIGINS=https://coinbase-in.com
 
 # 开了 HTTPS 就置 1,cookie 才带 Secure
 COOKIE_SECURE=1
@@ -1259,19 +1259,19 @@ mysql -h127.0.0.1 -uzero -p zero < migrations/2026_admin_session_token.sql
 
 ```bash
 # 1. 后台入口不再是裸 IP,而是目录
-curl -I https://coin-asia.cc/manager/            # 期望 200
+curl -I https://coinbase-in.com/manager/            # 期望 200
 curl -I http://47.236.95.137:3001/manager/        # 期望连不上(端口已关)
 
 # 2. 免密读会员数据必须失败
-curl -s https://coin-asia.cc/api/members/1 | head -c 200   # 期望 {"error":"forbidden"...}
+curl -s https://coinbase-in.com/api/members/1 | head -c 200   # 期望 {"error":"forbidden"...}
 
 # 3. 伪造后台头必须失败
-curl -s -H 'X-Admin-Id: 1' https://coin-asia.cc/api/admin/employees | head -c 200
+curl -s -H 'X-Admin-Id: 1' https://coinbase-in.com/api/admin/employees | head -c 200
                                                        # 期望 forbidden
 
 # 4. 全量扫描(只读,可以对着生产跑)
 cd admin
-SCAN_B_API=https://coin-asia.cc node scripts/scan-prod-readonly-audit.mjs
+SCAN_B_API=https://coinbase-in.com node scripts/scan-prod-readonly-audit.mjs
 #    期望最后一行:✅ 免密一个都读不到 —— 符合预期
 ```
 
@@ -1294,7 +1294,7 @@ SCAN_B_API=https://coin-asia.cc node scripts/scan-prod-readonly-audit.mjs
 | MySQL | 仅 B 台本地 | `zero` | `zero` | `YOUR_DB_PASS` | 3306(**仅 127.0.0.1**) |
 | **C 台 异地备份** | `C.C.C.C`(自填) | — | — | — | 22(SSH) |
 
-后台入口:`https://coin-asia.cc/manager/`(不再用 `http://IP:3001`)
+后台入口:`https://coinbase-in.com/manager/`(不再用 `http://IP:3001`)
 
 ---
 
@@ -1350,9 +1350,9 @@ C 台 (C.C.C.C,异地备份):
 - [ ] 后台 dist 已上传到 A 台 `/www/wwwroot/trade/manager/`
 - [ ] A 台 nginx 已有 `location /manager/` + `/manager/assets/` + `/manager/api/`
 - [ ] A 台 `/manager/` 段已加 `allow <你的IP>; deny all;`
-- [ ] `curl -I https://coin-asia.cc/manager/` 返回 200
+- [ ] `curl -I https://coinbase-in.com/manager/` 返回 200
 - [ ] `nc -zv 47.236.95.137 3001` 和 `3306` **连不上**
-- [ ] `SCAN_B_API=https://coin-asia.cc node scripts/scan-prod-readonly-audit.mjs` 输出「✅ 免密一个都读不到」
+- [ ] `SCAN_B_API=https://coinbase-in.com node scripts/scan-prod-readonly-audit.mjs` 输出「✅ 免密一个都读不到」
 
 ### 异地备份(§9)
 - [ ] C 台是**异地**机房,系统装好
