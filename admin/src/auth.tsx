@@ -104,7 +104,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 启动时验一次 token —— 令牌过期 / 被踢 / 后端改了库,都能自动退回登录页
   useEffect(() => {
     const token = getAdminToken();
-    if (!token || !user) return;
+    // 没有令牌 = 根本没登录。localStorage 里如果还残留着 admin_user,
+    //   必须清掉 —— 否则页面会停在后台首页,所有接口 403 "未识别管理员",
+    //   用户连登录页都回不去(以前这里写的是 `if (!token || !user) return`,
+    //   直接跳过了校验,就是这个坑)。
+    if (!token) {
+      if (user) persist(null);
+      return;
+    }
+    if (!user) return;
     let cancelled = false;
     (async () => {
       try {
@@ -116,6 +124,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
     return () => { cancelled = true; };
   }, [user, persist]);
+
+  // 全局 fetch 包装器发现令牌无效时(403 no_admin)会派发这个事件,
+  //   这里把 React 里的 user 也清掉 → App 退回登录页
+  useEffect(() => {
+    const onInvalid = () => persist(null);
+    window.addEventListener('admin_session_invalid', onInvalid);
+    return () => window.removeEventListener('admin_session_invalid', onInvalid);
+  }, [persist]);
 
   const login = useCallback(async (username: string, password: string) => {
     setLoading(true); setError(null);
