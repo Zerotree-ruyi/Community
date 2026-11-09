@@ -54,6 +54,8 @@ const req = (method, path, body, headers = {}) => new Promise((resolve) => {
   const r = http.request({
     method, hostname: url.hostname, port: url.port, path: url.pathname + url.search,
     headers: { 'Content-Type': 'application/json', ...headers },
+    // SSE 这类长连接必须有超时,否则测试会挂死
+    timeout: 8000,
   }, (res) => {
     let buf = '';
     res.on('data', c => buf += c);
@@ -62,6 +64,7 @@ const req = (method, path, body, headers = {}) => new Promise((resolve) => {
       catch { resolve({ status: res.statusCode, body: buf }); }
     });
   });
+  r.on('timeout', () => { r.destroy(); resolve({ status: 0, body: { error: 'timeout' } }); });
   r.on('error', e => resolve({ status: 0, body: { error: e.message } }));
   if (body) r.write(JSON.stringify(body));
   r.end();
@@ -83,8 +86,10 @@ const main = async () => {
   const superLogin = await req('POST', '/api/admin/login', { username: 'admin', password: 'admin123' });
   log(superLogin.status === 200 && superLogin.body?.user?.id, 'A1 super admin/admin123 登录', superLogin.body);
   const superId = superLogin.body?.user?.id;
+  // 后台身份 = 登录时后端签发的令牌(不再用「随便填个 id」的 X-Admin-Id 头)
+  const superAuth = { Authorization: `Bearer ${superLogin.body?.token}` };
 
-  const inviteList = await req('GET', '/api/admin/employees', null, { 'X-Admin-Id': String(superId) });
+  const inviteList = await req('GET', '/api/admin/employees', null, superAuth);
   const superEmp = inviteList.body?.items?.find(e => e.id === superId);
   const superInviteCode = superEmp?.invite_code;
   log(!!superInviteCode, `A2 拿到 super 邀请码 = ${superInviteCode}`);
@@ -118,6 +123,9 @@ const main = async () => {
   console.log('\n══ C. 会员登录 ══');
   const memberLogin = await req('POST', '/api/auth/login', { account: testAccount, password: 'Pass1234' });
   log(memberLogin.status === 200 && memberLogin.body?.user?.id === memberId, 'C1 会员登录', memberLogin.body?.user?.account);
+  // 会员身份 = 自己的 session_token(登录会刷新它,每次重新登录都要更新)
+  let memberToken = memberLogin.body?.user?.session_token;
+  const memberAuth = () => ({ 'X-Member-Token': memberToken });
 
   const wrongPwd = await req('POST', '/api/auth/login', { account: testAccount, password: 'WRONG' });
   log(wrongPwd.status === 401 && wrongPwd.body?.error === 'wrong_password', 'C2 错密码应 401 wrong_password', wrongPwd.body);
@@ -127,66 +135,66 @@ const main = async () => {
 
   // ─── 阶段 D:会员加钱包 ───
   console.log('\n══ D. 会员钱包 ══');
-  // 银行卡(必须加 with X-Admin-Id 或 member_id 验证 — readMemberAccess 检查 member_id 或 admin)
-  // 这里走 admin(super) 视角加,需要 X-Admin-Id
+  // 银行卡:走 admin(super) 视角加,需要后台令牌
   const addBank = await req('POST', `/api/members/${memberId}/wallets/bank`, {
     bank_name: '中国工商银行', card_no: '6222021234567890', holder: '张三',
     branch: '北京中关村支行', notes: '主卡', is_default: true,
-  }, { 'X-Admin-Id': String(superId) });
+  }, superAuth);
   log(addBank.status === 201 && !!addBank.body?.id, 'D1 加银行卡钱包', addBank.body);
   const bankWalletId = addBank.body?.id;
 
   // 数字钱包要 VIP5(后端兜底,前端也拦)。新会员默认 VIP1 → 先测被拦,再升 VIP 再加。
   const digitalDenied = await req('POST', `/api/members/${memberId}/wallets/digital`, {
     type1: 'USDT', type2: 'TRC20', address: 'TXxx...mockaddress', is_default: true, notes: '主钱包',
-  }, { 'X-Admin-Id': String(superId) });
+  }, superAuth);
   log(digitalDenied.status === 403 && digitalDenied.body?.error === 'vip_required',
     'D2a VIP1 加数字币钱包应 403 vip_required', digitalDenied.body);
 
-  await req('PUT', `/api/members/${memberId}`, { credit: '100|5' }, { 'X-Admin-Id': String(superId) });
+  await req('PUT', `/api/members/${memberId}`, { credit: '100|5' }, superAuth);
 
   const addDigital = await req('POST', `/api/members/${memberId}/wallets/digital`, {
     type1: 'USDT', type2: 'TRC20', address: 'TXxx...mockaddress', is_default: true, notes: '主钱包',
-  }, { 'X-Admin-Id': String(superId) });
+  }, superAuth);
   log(addDigital.status === 201 && !!addDigital.body?.id, 'D2b VIP5 加数字币钱包', addDigital.body);
   const digitalWalletId = addDigital.body?.id;
 
-  const bankList = await req('GET', `/api/members/${memberId}/wallets/bank`, null, { 'X-Admin-Id': String(superId) });
+  const bankList = await req('GET', `/api/members/${memberId}/wallets/bank`, null, superAuth);
   log(bankList.status === 200 && bankList.body?.data?.length >= 1, 'D3 列银行卡', bankList.body?.data?.length);
 
-  const digitalList = await req('GET', `/api/members/${memberId}/wallets/digital`, null, { 'X-Admin-Id': String(superId) });
+  const digitalList = await req('GET', `/api/members/${memberId}/wallets/digital`, null, superAuth);
   log(digitalList.status === 200 && digitalList.body?.data?.length >= 1, 'D4 列数字币', digitalList.body?.data?.length);
 
-  const missingField = await req('POST', `/api/members/${memberId}/wallets/bank`, { bank_name: 'X' }, { 'X-Admin-Id': String(superId) });
+  const missingField = await req('POST', `/api/members/${memberId}/wallets/bank`, { bank_name: 'X' }, superAuth);
   log(missingField.status === 400, 'D5 银行卡缺字段应 400', missingField.body);
 
   // ─── 阶段 E:super 后台入款 ───
   console.log('\n══ E. super 后台入款 ══');
   const recharge = await req('POST', `/api/members/${memberId}/recharge`, {
     amount: 10000, notes: '测试入款', reviewer: 'admin',
-  }, { 'X-Admin-Id': String(superId) });
+  }, superAuth);
   log(recharge.status === 200 && Number(recharge.body?.after) === 10000, 'E1 super 给会员入款 10000', recharge.body);
 
   // ─── 阶段 F:会员下单 ───
   console.log('\n══ F. 会员下单(30s 周期) ══');
-  // 下单需要 member_id,无 X-Admin-Id 也行(register 时已记录)
-  // 但下单路由里没看到 requireMemberAccess,所以可以直传 member_id
+  // 下单必须带会员自己的 token —— 后端现在认「你是谁」,不再只看 member_id
   const order = await req('POST', '/api/orders', {
     member_id: memberId, symbol: 'BTCUSDT', direction: '涨', amount: 100,
     open_price: 65000, period: '30s', return_rate: 20,
-  });
+  }, memberAuth());
   log(order.status === 200 && !!order.body?.order_id, 'F1 会员下单 100元 BTCUSDT 涨 30s', order.body);
   const orderId = order.body?.order_id;
 
-  const myOrders = await req('GET', `/api/orders/mine?member_id=${memberId}`);
+  const myOrders = await req('GET', `/api/orders/mine?member_id=${memberId}`, null, memberAuth());
   log(myOrders.status === 200 && myOrders.body?.data?.length >= 1, 'F2 会员看自己订单', myOrders.body?.data?.length);
 
-  const myFunds = await req('GET', `/api/funds/mine?member_id=${memberId}`);
+  const myFunds = await req('GET', `/api/funds/mine?member_id=${memberId}`, null, memberAuth());
   log(myFunds.status === 200 && myFunds.body?.data?.length >= 1, 'F3 会员看自己资金流水', myFunds.body?.data?.length);
 
   // 下单只扣 balance,**不动 frozen**(frozen 只表示后台手动冻结的金额,
   // 见 migrations/2026_frozen_admin_only.sql)
   const memberInfo = await req('POST', '/api/auth/login', { account: testAccount, password: 'Pass1234' });
+  // 每次重新登录都会刷新 session_token —— 旧的立刻失效,必须换成新的
+  memberToken = memberInfo.body?.user?.session_token;
   log(Number(memberInfo.body?.user?.balance) === 9900 && Number(memberInfo.body?.user?.frozen) === 0,
     'F4 下单扣 balance 100,可用 9900,frozen 不变(仍为 0)',
     { balance: memberInfo.body?.user?.balance, frozen: memberInfo.body?.user?.frozen });
@@ -194,16 +202,17 @@ const main = async () => {
   // 等 32s 触发结算
   console.log('  (等待 32 秒让订单到期...)');
   await sleep(32000);
-  const settle = await req('POST', '/api/orders/settle-due');
+  const settle = await req('POST', '/api/orders/settle-due', null, memberAuth());
   log(settle.status === 200, 'F5 触发到期订单结算', settle.body);
 
   // 查结算结果
-  const orderDetail = await req('GET', `/api/orders/${orderId}?member_id=${memberId}`);
+  const orderDetail = await req('GET', `/api/orders/${orderId}?member_id=${memberId}`, null, memberAuth());
   log(orderDetail.status === 200 && orderDetail.body?.order?.status === '已平仓',
     'F6 订单状态应为已平仓', orderDetail.body?.order?.status);
 
   // 重新查余额
   const memberAfter = await req('POST', '/api/auth/login', { account: testAccount, password: 'Pass1234' });
+  memberToken = memberAfter.body?.user?.session_token;
   console.log(`  结算后: balance=${memberAfter.body?.user?.balance}, frozen=${memberAfter.body?.user?.frozen}`);
 
   // ─── 阶段 G:提现申请 + 审核 ───
@@ -215,14 +224,14 @@ const main = async () => {
     wallet_id: bankWalletId,
     amount: 500,
     fund_password: FUND_PWD,
-  });
+  }, memberAuth());
   log(withdraw.status === 200 && !!withdraw.body?.withdrawal?.id, 'G1 会员申请提现 500', withdraw.body);
   const withdrawId = withdraw.body?.withdrawal?.id;
 
   if (withdrawId) {
     const approve = await req('POST', `/api/withdrawals/${withdrawId}/approve`, {
       reviewer: 'admin', actual_amount: 500,
-    }, { 'X-Admin-Id': String(superId) });
+    }, superAuth);
     log(approve.status === 200 && approve.body?.ok, 'G2 super 审核通过提现', approve.body);
   } else {
     log(false, 'G2 跳过 — 提现单未创建');
@@ -232,15 +241,15 @@ const main = async () => {
   console.log('\n══ H. 站内消息 ══');
   const sendMsg = await req('POST', '/api/messages', {
     member_id: memberId, title: '测试消息', content: '这是一条测试消息', sender: 'admin',
-  }, { 'X-Admin-Id': String(superId) });
+  }, superAuth);
   log(sendMsg.status === 200 && !!sendMsg.body?.id, 'H1 super 给会员发消息', sendMsg.body);
 
-  const myMsgs = await req('GET', `/api/messages/mine?member_id=${memberId}`);
+  const myMsgs = await req('GET', `/api/messages/mine?member_id=${memberId}`, null, memberAuth());
   log(myMsgs.status === 200 && myMsgs.body?.data?.length >= 1, 'H2 会员看自己消息', myMsgs.body?.data?.length);
 
   const msgId = myMsgs.body?.data?.[0]?.id;
   if (msgId) {
-    const markRead = await req('POST', `/api/messages/${msgId}/read`, { member_id: memberId });
+    const markRead = await req('POST', `/api/messages/${msgId}/read`, { member_id: memberId }, memberAuth());
     log(markRead.status === 200 && markRead.body?.ok, 'H3 标记消息已读', markRead.body);
   }
 
@@ -248,25 +257,96 @@ const main = async () => {
   console.log('\n══ I. RBAC 测试(非 super 不能看其他会员) ══');
   const empCreate = await req('POST', '/api/admin/employees', {
     username: empAccount, display_name: '测试员工', password: 'Test1234', role: 'admin',
-  }, { 'X-Admin-Id': String(superId) });
+  }, superAuth);
   const empId = empCreate.body?.employee?.id;
   log(!!empId, `I1 创建测试员工 id=${empId}`);
 
   if (empId) {
     const empLogin = await req('POST', '/api/admin/login', { username: empAccount, password: 'Test1234' });
     log(empLogin.status === 200, 'I2 员工登录', empLogin.body?.user?.username);
+    const empAuth = { Authorization: `Bearer ${empLogin.body?.token}` };
 
     // 员工查 super 的客户 — 应 403
-    const empSeeOther = await req('GET', `/api/members/${memberId}`, null, { 'X-Admin-Id': String(empId) });
+    const empSeeOther = await req('GET', `/api/members/${memberId}`, null, empAuth);
     log(empSeeOther.status === 403, 'I3 员工查 super 的客户应 403', empSeeOther.body);
 
     // 员工查员工列表 — 应 403
-    const empSeeList = await req('GET', '/api/admin/employees', null, { 'X-Admin-Id': String(empId) });
+    const empSeeList = await req('GET', '/api/admin/employees', null, empAuth);
     log(empSeeList.status === 403, 'I4 员工查员工列表应 403', empSeeList.body);
   }
 
   // ─── 阶段 J:清理 ───
   console.log('\n══ J. 清理测试数据 ══');
+  // ---- 阶段 K:安全回归(免密读写必须全被挡) ----
+  console.log('\n== K. 安全回归 — 免密访问必须 403 ==');
+  const noAuth = [
+    ['会员详情',   `/api/members/${memberId}`],
+    ['自己的流水', `/api/funds/mine?member_id=${memberId}`],
+    ['自己的订单', `/api/orders/mine?member_id=${memberId}`],
+    ['自己的消息', `/api/messages/mine?member_id=${memberId}`],
+    ['银行卡列表(带身份证号)', `/api/wallets/bank`],
+    ['数字币钱包列表',         `/api/wallets/digital`],
+    ['员工列表',   `/api/admin/employees`],
+    ['全站统计',   `/api/stats`],
+  ];
+  for (const [name, p] of noAuth) {
+    const r = await req('GET', p);
+    log(r.status === 403, `K1 ${name} 无凭证应 403`, { status: r.status, body: r.body });
+  }
+
+  // 冒充超管 —— 老的 X-Admin-Id 头必须不再被认
+  const fakeAdmin = await req('GET', `/api/admin/employees`, null, { 'X-Admin-Id': '1' });
+  log(fakeAdmin.status === 403, 'K2 伪造 X-Admin-Id: 1 应 403', { status: fakeAdmin.status });
+
+  // 随便编一个令牌
+  const fakeToken = await req('GET', `/api/admin/employees`, null, { Authorization: 'Bearer deadbeefdeadbeef' });
+  log(fakeToken.status === 403, 'K3 伪造 Bearer 令牌应 403', { status: fakeToken.status });
+
+  // 会员拿自己的令牌读别人的数据 —— 应 403
+  const crossRead = await req('GET', '/api/members/999999', null, memberAuth());
+  log(crossRead.status === 403, 'K4 会员读别人的会员应 403', { status: crossRead.status });
+
+  // 会员带自己的令牌读自己的数据 —— 必须 200(不能把正常功能也堵了)
+  const selfRead = await req('GET', `/api/funds/mine?member_id=${memberId}`, null, memberAuth());
+  log(selfRead.status === 200, 'K5 会员带自己的令牌读自己数据应 200', { status: selfRead.status });
+
+  // 带正确令牌的后台 —— 必须 200
+  const adminOk = await req('GET', `/api/members/${memberId}`, null, superAuth);
+  log(adminOk.status === 200, 'K6 后台带令牌读会员应 200', { status: adminOk.status });
+
+  // ---- 会员不能给自己提权(带自己的令牌也不行) ----
+  //   这一组是重点:如果"会员本人"也能过 requireMemberAccess,
+  //   会员就能给自己改信用分/加钱/冻结 —— 那是提权,必须单独挡住。
+  const selfEscalate = [
+    ['改信用分',  'PUT',  `/api/members/${memberId}`, { credit: '99|3' }],
+    ['加钱',      'POST', `/api/members/${memberId}/recharge`, { amount: 1000, notes: 'self' }],
+    ['冻结',      'POST', `/api/members/${memberId}/freeze`, { amount: 100, action: 'freeze' }],
+    ['重置密码',  'POST', `/api/members/${memberId}/reset-password`, { new_password: 'Hacked123' }],
+    ['启用禁用',  'POST', `/api/members/${memberId}/toggle-status`, {}],
+    ['删银行卡',  'DELETE', `/api/wallets/bank/1`, null],
+    ['删站内信',  'DELETE', `/api/messages/1`, null],
+  ];
+  for (const [name, m, p, b] of selfEscalate) {
+    const r = await req(m, p, b, memberAuth());
+    log(r.status === 403, `K7 会员给自己${name}应 403`, { status: r.status, body: r.body });
+  }
+
+  // ---- 实时推送(SSE)必须校验 token ----
+  //   以前"会员没有 session_token 时谁来都能订阅",改个 URL 里的 id
+  //   就能看别人的余额/信用分。
+  const sseNoToken = await req('GET', `/api/members/${memberId}/stream`);
+  log(sseNoToken.status === 401, 'K8 SSE 无 token 订阅应 401', { status: sseNoToken.status });
+
+  const sseBadToken = await req('GET', `/api/members/${memberId}/stream?token=deadbeef`);
+  log(sseBadToken.status === 401, 'K9 SSE 错 token 订阅应 401', { status: sseBadToken.status });
+
+  // ---- 强制下线后旧 token 必须失效 ----
+  const kick = await req('POST', `/api/admin/members/${memberId}/force-logout`, { reviewer: 'admin' }, superAuth);
+  log(kick.status === 200, 'K10 后台强制下线应 200', { status: kick.status, body: kick.body });
+  const afterKick = await req('GET', `/api/funds/mine?member_id=${memberId}`, null, memberAuth());
+  log(afterKick.status === 403, 'K11 强制下线后旧 token 应失效 403', { status: afterKick.status });
+
+
   try {
     const c = await mysql.createConnection({
       host: process.env.DB_HOST || '127.0.0.1',

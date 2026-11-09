@@ -2,11 +2,13 @@
  * Admin AuthContext — 后台管理员账号认证
  *
  * 设计:
- *  - 启动时从 localStorage['admin_user'] 读
- *  - login 调 /api/admin/login,成功后写 localStorage + state
- *  - changePassword 调 /api/admin/change-password
- *  - regenerateInvite 调 /api/admin/regenerate-invite
- *  - 本期不做 token/session 校验(后端无状态,前端 localStorage 即可)
+ *  - 启动时从 localStorage['admin_user'] + localStorage['admin_token'] 读
+ *  - login 调 /api/admin/login,成功后拿后端签发的 token 存起来
+ *  - 之后每个请求自动带 `Authorization: Bearer <token>`(见 main.tsx 的 fetch 包装)
+ *  - 启动时用 GET /api/admin/me 验一次 token —— 过期/被踢就自动退回登录页
+ *
+ * ⚠️ 这里不再用「前端自己填一个 id 给后端」的方式。
+ *    以前所有请求带 `X-Admin-Id`,公网上任何人加这个头就是超管。
  */
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
@@ -35,7 +37,20 @@ interface AuthValue {
 }
 
 const STORAGE_KEY = 'admin_user';
+const TOKEN_KEY = 'admin_token';
 const AuthContext = createContext<AuthValue | undefined>(undefined);
+
+// ─── 令牌存取 ────────────────────────────────────────────────────────────────
+// main.tsx 的 fetch 包装器要用,所以导出。
+export function getAdminToken(): string {
+  try { return localStorage.getItem(TOKEN_KEY) ?? ''; } catch { return ''; }
+}
+export function setAdminToken(token: string): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* 隐私模式下 localStorage 可能不可写 */ }
+}
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -69,37 +84,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try { setUserState(e.newValue ? JSON.parse(e.newValue) : null); }
         catch { setUserState(null); }
       }
+      if (e.key === TOKEN_KEY && !e.newValue) setUserState(null);
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  const persist = (u: AdminUser | null) => {
+  const persist = useCallback((u: AdminUser | null) => {
     setUserState(u);
     if (u) localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
-    else localStorage.removeItem(STORAGE_KEY);
-  };
+    else {
+      localStorage.removeItem(STORAGE_KEY);
+      setAdminToken('');
+    }
+  }, []);
 
-  const setUser = useCallback((u: AdminUser) => persist(u), []);
+  const setUser = useCallback((u: AdminUser) => persist(u), [persist]);
+
+  // 启动时验一次 token —— 令牌过期 / 被踢 / 后端改了库,都能自动退回登录页
+  useEffect(() => {
+    const token = getAdminToken();
+    if (!token || !user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/me');
+        if (res.status === 401 || res.status === 403) {
+          if (!cancelled) persist(null);
+        }
+      } catch { /* 网络断了就先不踢,下次操作会再验 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user, persist]);
 
   const login = useCallback(async (username: string, password: string) => {
     setLoading(true); setError(null);
     try {
-      const data = await postJSON<{ user: AdminUser }>('/admin/login', { username, password });
+      const data = await postJSON<{ user: AdminUser; token?: string }>('/admin/login', { username, password });
+      // 令牌存起来 —— 后面的请求靠它证明「我是谁」
+      setAdminToken(data.token ?? '');
       persist(data.user);
       return true;
     } catch (e: any) {
       setError(e.code || 'network_error');
       return false;
     } finally { setLoading(false); }
-  }, []);
+  }, [persist]);
 
-  const logout = useCallback(() => persist(null), []);
+  const logout = useCallback(() => {
+    // 先跟后端说一声(作废令牌),失败了也照样清本地
+    void fetch('/api/admin/logout', { method: 'POST' }).catch(() => {});
+    persist(null);
+  }, [persist]);
+
   const clearError = useCallback(() => setError(null), []);
 
   const changePassword = useCallback(async (id: number, oldPwd: string, newPwd: string) => {
     try {
-      await postJSON('/admin/change-password', { id, oldPassword: oldPwd, newPassword: newPwd });
+      const data = await postJSON<{ ok: boolean; token?: string }>('/admin/change-password',
+        { id, oldPassword: oldPwd, newPassword: newPwd });
+      // 改完密码后端会换一个新令牌 —— 把旧的换掉,不然下次请求就 401 了
+      if (data?.token) setAdminToken(data.token);
       return { ok: true };
     } catch (e: any) {
       return { ok: false, code: e.code, message: e.message };

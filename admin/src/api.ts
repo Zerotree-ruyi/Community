@@ -1,9 +1,13 @@
 /**
  * 前端 API 客户端 — 调用 Express 后端 (admin/server.ts)
  * 通过 Vite 代理转发,前端直接 fetch("/api/...") 即可
+ *
+ * 生产上后台挂在 /manager/ 目录下,前缀由 VITE_API_PREFIX 改
+ * (见 src/apiPrefix.ts)
  */
+import { API_PREFIX } from "./apiPrefix";
 
-const API = "/api";
+const API = API_PREFIX;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {

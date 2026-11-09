@@ -51,8 +51,9 @@ const changed = await page.eval(`
   const lr = await fetch('/api/admin/login', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ username:'admin', password:'admin123' }) });
   const ld = await lr.json();
+  // 后台身份 = 登录时后端签发的令牌(不再用 X-Admin-Id 头)
   const r = await fetch('/api/members/${MEMBER_ID}', { method:'PUT',
-    headers:{'Content-Type':'application/json', 'X-Admin-Id': String(ld.user.id)},
+    headers:{'Content-Type':'application/json', 'Authorization': 'Bearer ' + ld.token},
     body: JSON.stringify({ credit: '${target}|3' }) });
   return { status: r.status, ok: (await r.json().catch(()=>null))?.ok };
 `);

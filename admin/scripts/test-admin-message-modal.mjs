@@ -14,6 +14,7 @@ await page.eval(`
     body: JSON.stringify({ username:${JSON.stringify(ADMIN_USER)}, password:${JSON.stringify(ADMIN_PWD)} }) });
   const d = await r.json();
   localStorage.setItem('admin_user', JSON.stringify(d.user));
+  localStorage.setItem('admin_token', d.token);
   // 重置成展开态 —— 收起时子菜单是"悬停才弹出"的浮层,点不出来
   localStorage.setItem('admin:sidebar:collapsed', '0');
   return 1;

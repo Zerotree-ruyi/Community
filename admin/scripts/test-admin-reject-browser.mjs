@@ -17,6 +17,7 @@ const login = await page.eval(`
   const d = await r.json();
   if (!r.ok) return { ok:false, status:r.status, body:d };
   localStorage.setItem('admin_user', JSON.stringify(d.user));
+  localStorage.setItem('admin_token', d.token);
   return { ok:true, user:d.user.username, role:d.user.role };
 `);
 console.log('① 后台登录:', JSON.stringify(login));

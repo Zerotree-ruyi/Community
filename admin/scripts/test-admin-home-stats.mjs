@@ -19,6 +19,7 @@ await page.eval(`
     body: JSON.stringify({ username:${JSON.stringify(ADMIN_USER)}, password:${JSON.stringify(ADMIN_PWD)} }) });
   const d = await r.json();
   localStorage.setItem('admin_user', JSON.stringify(d.user));
+  localStorage.setItem('admin_token', d.token);
   return 1;
 `);
 await page.goto(`${ADMIN_BASE}/`);

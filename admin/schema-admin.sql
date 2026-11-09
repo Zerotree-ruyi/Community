@@ -15,8 +15,12 @@ CREATE TABLE IF NOT EXISTS `admin_users` (
   `invite_code`     VARCHAR(16)   NOT NULL DEFAULT '' COMMENT '推广邀请码',
   `last_login_time` DATETIME      DEFAULT NULL,
   `last_login_ip`   VARCHAR(45)   DEFAULT '',
+  `session_token`      VARCHAR(64) NOT NULL DEFAULT '' COMMENT '登录令牌(空=未登录)',
+  `session_expires_at` DATETIME     DEFAULT NULL COMMENT '令牌过期时间',
+  `session_ip`         VARCHAR(45) NOT NULL DEFAULT '' COMMENT '签发时客户端 IP',
   `created_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_username` (`username`),
-  KEY `idx_status` (`status`)
+  KEY `idx_status` (`status`),
+  KEY `idx_session_token` (`session_token`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理员账号';

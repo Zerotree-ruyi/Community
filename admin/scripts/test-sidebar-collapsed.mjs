@@ -13,6 +13,7 @@ await page.eval(`
     body: JSON.stringify({ username:${JSON.stringify(ADMIN_USER)}, password:${JSON.stringify(ADMIN_PWD)} }) });
   const d = await r.json();
   localStorage.setItem('admin_user', JSON.stringify(d.user));
+  localStorage.setItem('admin_token', d.token);
   // 重置成展开态,保证脚本每次跑的初始状态一致(上次跑完可能是收起的)
   localStorage.setItem('admin:sidebar:collapsed', '0');
   return 1;

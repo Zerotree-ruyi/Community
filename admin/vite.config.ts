@@ -11,7 +11,12 @@ export default defineConfig(({ mode }) => {
   const emitSourcemaps = mode === 'development'
 
   return {
-    base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
+    // 生产后台挂在 /manager/ 目录下:
+    //   VITE_BASE_PATH=/manager/ VITE_API_PREFIX=/manager/api npm run build
+    // 开发默认还是根路径,什么都不变。
+    base: process.env.VITE_BASE_PATH
+      ? `${process.env.VITE_BASE_PATH.replace(/\/+$/, '')}/`
+      : (process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/'),
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
@@ -45,6 +50,13 @@ export default defineConfig(({ mode }) => {
           // 默认转本地后端;要用别的后端实例时:VITE_API_TARGET=http://localhost:3002 npm run dev
           target: process.env.VITE_API_TARGET || 'http://localhost:3001',
           changeOrigin: true,
+        },
+        // 生产用的目录前缀也留一条,方便本地按生产的路径调:
+        //   VITE_API_PREFIX=/manager/api npx vite --port 5175
+        '/manager/api': {
+          target: process.env.VITE_API_TARGET || 'http://localhost:3001',
+          changeOrigin: true,
+          rewrite: (p: string) => p.replace(/^\/manager/, ''),   // /manager/api/x → /api/x
         },
       },
     },

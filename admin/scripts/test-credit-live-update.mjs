@@ -28,6 +28,7 @@ await page.eval(`
     body: JSON.stringify({ username:${JSON.stringify(ADMIN_USER)}, password:${JSON.stringify(ADMIN_PWD)} }) });
   const d = await r.json();
   localStorage.setItem('admin_user', JSON.stringify(d.user));
+  localStorage.setItem('admin_token', d.token);
   localStorage.setItem('admin:sidebar:collapsed', '0');
   return 1;
 `);

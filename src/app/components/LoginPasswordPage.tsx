@@ -99,6 +99,20 @@ export function LoginPasswordPage() {
         return;
       }
       setStatus({ kind: 'success', message: 'Login password updated. Please use the new password next time.' });
+      // 后端改密码时会旋转 session_token(旧的作废)。
+      // 把新 token 存回本地,否则下一个请求会 401,自己把自己踢下线。
+      if (data?.session_token) {
+        try {
+          const raw = localStorage.getItem('exchange_user');
+          const u = raw ? JSON.parse(raw) : null;
+          if (u?.id) {
+            u.session_token = data.session_token;
+            localStorage.setItem('exchange_user', JSON.stringify(u));
+            // 通知 AuthContext 换掉内存里的 token(SSE 会用新 token 重新订阅)
+            window.dispatchEvent(new Event('exchange_session_rotated'));
+          }
+        } catch { /* ignore */ }
+      }
       setOldPwd('');
       setNewPwd('');
       setConfirmPwd('');

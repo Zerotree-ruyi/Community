@@ -1,5 +1,11 @@
 # 宝塔双服务器部署教程(本项目定制版)
 
+> ⚠️ **本文档不写任何真实密码。** 所有出现 `YOUR_DB_PASS` 的地方,
+> 都替换成「你在 §2.2 建库时自己设的那个密码」。
+> 密码写在 `admin/.env` 里(那个文件在 `.gitignore` 中,不会进仓库)。
+> —— 原因很直接:密码一旦进了 git,就算后面删掉,历史记录里还留着。
+> 弱密码(`zh123456` 这种)尤其要改,见 `deploy/SECURITY-CHECKLIST.md` §1.4。
+
 ## 📐 架构总览
 
 ```
@@ -16,7 +22,7 @@
                     │  PM2 (3001) + MySQL (3306)   │
                     │  ├─ admin/server.ts          │
                     │  └─ 数据库 zero              │
-                    │     用户 zero / 密码 zh123456 │
+                    │     用户 zero / 密码 YOUR_DB_PASS │
                     └─────────────┬────────────────┘
                                   │ 每天 mysqldump via SSH
                                   ▼
@@ -190,7 +196,7 @@ wget -O install.sh http://download.bt.cn/install/install-ubuntu_6.0.sh && sudo b
 |---|---|
 | **数据库名** | `zero` |
 | **用户名** | `zero` |
-| **密码** | `zh123456` |
+| **密码** | `YOUR_DB_PASS` |
 | **访问权限** | **本地服务器** ⚠️ |
 | **编码** | `utf8mb4`(默认就是,不用改) |
 
@@ -216,7 +222,7 @@ mysql -uroot -p
 
 再验证 `zero` 普通账号能连:
 ```bash
-mysql -h127.0.0.1 -uzero -p'zh123456' zero -e "SHOW TABLES;"
+mysql -h127.0.0.1 -uzero -p'YOUR_DB_PASS' zero -e "SHOW TABLES;"
 # 应输出:
 #   ERROR 1146 (42S02): Table 'zero.xxx' doesn't exist
 # (空表 — 这是正常的,因为我们还没建表!有这行报错说明数据库账号能连)
@@ -334,7 +340,7 @@ chmod +x scripts/init-db.sh
 ./scripts/init-db.sh \
   --name zero \
   --user zero \
-  --pass 'zh123456'
+  --pass 'YOUR_DB_PASS'
 ```
 
 跑起来后脚本会做这些事(逐条打印进度):
@@ -348,7 +354,7 @@ chmod +x scripts/init-db.sh
 
 **验证表都建出来了**:
 ```bash
-mysql -h127.0.0.1 -uzero -p'zh123456' zero -e "SHOW TABLES;"
+mysql -h127.0.0.1 -uzero -p'YOUR_DB_PASS' zero -e "SHOW TABLES;"
 # 应输出十几张表:members  orders  withdrawals  recharges  fund_records  ...
 ```
 
@@ -377,7 +383,7 @@ vi .env
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=zero
-DB_PASS=zh123456
+DB_PASS=YOUR_DB_PASS
 DB_NAME=zero
 PORT=3001
 ```
@@ -390,7 +396,7 @@ cat .env
 chmod 600 .env
 ```
 
-> ⚠️ 这里填的 `DB_USER=zero` `DB_PASS=zh123456` 必须跟 §2.2 宝塔建库时设的**完全一致**(否则 §3.7 PM2 一启动就 `access denied`)。
+> ⚠️ 这里填的 `DB_USER=zero` `DB_PASS=YOUR_DB_PASS` 必须跟 §2.2 宝塔建库时设的**完全一致**(否则 §3.7 PM2 一启动就 `access denied`)。
 
 ### 3.6 启动测试(确认能跑)
 
@@ -751,7 +757,7 @@ tail -f /www/wwwlogs/admin.access.log
 | 现象 | 排查 |
 |---|---|
 | 前端调 `/api/*` 报 CORS | B 台 `server.ts` 已开 `app.use(cors())` ✓。如果用 Nginx 反代,不会触发 CORS(同源)。若 A 台没反代直接调 `47.236.95.137:3001`,改用 §4.5 的 Nginx 反代。 |
-| 后端连不上 DB | 检查 B 台 `.env` 的 `DB_USER=zero` / `DB_PASS=zh123456` / `DB_NAME=zero`;`mysql -uzero -p'zh123456' zero` 在 B 台本地试连;看 PM2 日志是否有 `access denied`。 |
+| 后端连不上 DB | 检查 B 台 `.env` 的 `DB_USER=zero` / `DB_PASS=YOUR_DB_PASS` / `DB_NAME=zero`;`mysql -uzero -p'YOUR_DB_PASS' zero` 在 B 台本地试连;看 PM2 日志是否有 `access denied`。 |
 | B 台 `public_ip` 一直显示内网 | B 台 `curl https://api.ipify.org` 试一下。若被墙,代码会自动切到 `pconline` / `icanhazip`(见 `admin/server.ts` 的 `PUBLIC_IP_SOURCES`)。 |
 | 前台白屏 | 浏览器控制台看 404。多半是 Nginx `try_files` 没配 — 检查 `location /` 块。 |
 | 前端调 API 返回 502 | A 台 Nginx 连不上 B 台。`curl http://47.236.95.137/api/health` 从 A 台试一下;检查 B 台安全组/防火墙 80(或 3001)是否放行。 |
@@ -1015,7 +1021,7 @@ mysql -uroot -p
 
 ```sql
 CREATE DATABASE `zero` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'zero'@'localhost' IDENTIFIED BY 'zh123456';
+CREATE USER 'zero'@'localhost' IDENTIFIED BY 'YOUR_DB_PASS';
 GRANT ALL PRIVILEGES ON `zero`.* TO 'zero'@'localhost';
 FLUSH PRIVILEGES;
 EXIT;
@@ -1093,14 +1099,202 @@ mysqlbinlog --stop-datetime='2026-09-16 14:23:45' /www/server/data/mysql-bin.* |
 
 ---
 
+## 🔐 第 10 步:安全加固 + 后台改挂 `/manager/` 目录
+
+> 这一节是 2026-11 的加固补丁。**完整、可逐条打勾的清单在
+> [`deploy/SECURITY-CHECKLIST.md`](deploy/SECURITY-CHECKLIST.md)**,本节只讲
+> 「后台不再用裸 IP 访问,改成 `https://coin-asia.cc/manager/`」这件事。
+
+### 10.1 为什么要改
+
+老形态是 `http://47.236.95.137:3001` —— 直接输 IP 就能打开后台登录页,
+而且 3001 和 MySQL 3306 都暴露在公网上,任何人都能:
+
+- 试后台密码(原来没有登录频率限制)
+- 免密调用 10 多个会员接口(改个 URL 里的 `member_id` 就能看别人的余额、银行卡号、身份证号、订单)
+- 用 `X-Admin-Id: 1` 这个头**冒充**超级管理员(这个头是前端随便就能加的)
+
+新形态:
+
+```
+公网 → A台 47.236.172.111 :443  →  B台 47.236.95.137 :80  →  127.0.0.1:3001  →  127.0.0.1:3306
+        │                            └─ 只允许 A 台 IP 访问
+        └─ https://coin-asia.cc/manager/  ← 后台入口(带目录,不是裸 IP)
+```
+
+A 台本来就有 `coin-asia.cc` 的 Let's Encrypt 证书,所以后台跟前台**同源**,
+不用再单独搞一套 HTTPS,cookie 和 CORS 也简单。
+
+### 10.2 后台构建(带目录前缀)
+
+在本地(或服务器上)构建后台,三个环境变量决定它挂在哪:
+
+```bash
+cd admin
+VITE_BASE_PATH=/manager/ VITE_API_PREFIX=/manager/api npx vite build
+```
+
+产物 `admin/dist/` 里的 index.html 会引用 `/manager/assets/index-xxx.js`,
+前端调 `/api/xxx` 的地方会被自动改写成 `/manager/api/xxx`。
+
+上传到 A 台:
+
+```bash
+# A 台
+mkdir -p /www/wwwroot/trade/manager
+# 把 admin/dist/ 里的东西(不是 dist 本身)传进去
+rsync -avz --delete admin/dist/ root@47.236.172.111:/www/wwwroot/trade/manager/
+```
+
+### 10.3 A 台 nginx 加 `/manager/`
+
+直接抄 [`deploy/nginx-bt-a-site.conf`](deploy/nginx-bt-a-site.conf),关键三段:
+
+```nginx
+# 后台 SPA(目录挂载)
+location /manager/ {
+    alias /www/wwwroot/trade/manager/;
+    try_files $uri $uri/ /manager/index.html;
+    index index.html;
+}
+# 后台静态资源(长缓存)
+location /manager/assets/ {
+    alias /www/wwwroot/trade/manager/assets/;
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+}
+# 后台 API(转发到 B 台)
+location /manager/api/ {
+    proxy_pass http://47.236.95.137:80/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+> ⚠️ `location /manager/` 必须用 `^~` 或放在 `location /` 之前,
+> 否则会被 `location /` 的 `try_files` 抢先匹配掉,变成回 404。
+
+### 10.4 限制谁能打开后台(可选但强烈建议)
+
+后台是内部管理面板,建议只放行自己的 IP。在 `/manager/` 段里加:
+
+```nginx
+location /manager/ {
+    alias /www/wwwroot/trade/manager/;
+    try_files $uri $uri/ /manager/index.html;
+    index index.html;
+
+    allow 你的公网IP;
+    deny  all;          # ← 其他人一律 403
+}
+```
+
+IP 变了(换网络 / 手机热点)就改这一行。或者用宝塔面板的
+「网站 → 配置文件」直接编辑。
+
+### 10.5 B 台 nginx 只放行 A 台
+
+B 台的后端不能再对全网开放:
+
+```nginx
+location /api/ {
+    allow 47.236.172.111;    # ← 只有 A 台能转发过来
+    deny  all;
+    proxy_pass http://127.0.0.1:3001/api/;
+}
+```
+
+完整版见 [`deploy/nginx-bt-b-site.conf`](deploy/nginx-bt-b-site.conf)。
+
+### 10.6 关掉公网直连的 3001 和 3306
+
+| 位置 | 做什么 |
+|---|---|
+| 云厂商安全组 | B 台 **删除** 3001、3306 的入站规则(只留 22 / 80 / 443) |
+| 宝塔 → 安全 | 同样删掉 3001、3306,只留 22 / 80 / 443 |
+| MySQL 配置 | `/etc/my.cnf` 或 my.cnf 里加 `[mysqld]\nbind-address=127.0.0.1`,重启 MySQL |
+| MySQL 账号 | 业务账号只留 `localhost`;`root` 改成只用 socket 登录,并改掉弱密码 |
+
+验证(在你自己电脑上跑,应该连不上):
+
+```bash
+nc -zv 47.236.95.137 3001   # 期望:超时/拒绝
+nc -zv 47.236.95.137 3306   # 期望:超时/拒绝
+mysql -h 47.236.95.137 -u root -p   # 期望:连不上
+```
+
+### 10.7 后端 .env 加这几个
+
+B 台 `admin/.env`:
+
+```ini
+# 只允许这几个 Origin 调接口(前台域名 + 后台同源)。留空 = 不允许任何跨域。
+ALLOWED_ORIGINS=https://coin-asia.cc
+
+# 开了 HTTPS 就置 1,cookie 才带 Secure
+COOKIE_SECURE=1
+
+# 开了 HSTS(确认全站 HTTPS 之后再开)
+ENABLE_HSTS=1
+
+# 老的后台鉴权头。保持 0 = 完全不认 X-Admin-Id(推荐)
+ALLOW_LEGACY_ADMIN_HEADER=0
+```
+
+### 10.8 跑迁移(必须先做)
+
+新加了三列,后台登录要靠它们签发令牌:
+
+```bash
+# B 台
+cd /www/wwwroot/exchange-admin/admin
+mysql -h127.0.0.1 -uzero -p zero < migrations/2026_admin_session_token.sql
+```
+
+幂等脚本,重复跑不会报错。**先跑迁移,再发新代码** ——
+不然后台登录会报 `Unknown column 'session_token'`。
+
+### 10.9 验证
+
+```bash
+# 1. 后台入口不再是裸 IP,而是目录
+curl -I https://coin-asia.cc/manager/            # 期望 200
+curl -I http://47.236.95.137:3001/manager/        # 期望连不上(端口已关)
+
+# 2. 免密读会员数据必须失败
+curl -s https://coin-asia.cc/api/members/1 | head -c 200   # 期望 {"error":"forbidden"...}
+
+# 3. 伪造后台头必须失败
+curl -s -H 'X-Admin-Id: 1' https://coin-asia.cc/api/admin/employees | head -c 200
+                                                       # 期望 forbidden
+
+# 4. 全量扫描(只读,可以对着生产跑)
+cd admin
+SCAN_B_API=https://coin-asia.cc node scripts/scan-prod-readonly-audit.mjs
+#    期望最后一行:✅ 免密一个都读不到 —— 符合预期
+```
+
+### 10.10 出问题怎么回滚
+
+- 后台打不开 → nginx 里把 `location /manager/` 那段注释掉,恢复原来的站点配置
+- 接口 403 → 检查 B 台 `.env` 的 `ALLOWED_ORIGINS` 有没有写全(前台域名)
+- 登录报 `Unknown column 'session_token'` → 迁移没跑,补跑 §10.8
+- 前台进不去 → `ALLOWED_ORIGINS` 写错了,临时清空它(等于不允许任何跨域 Origin,
+  同源访问不受影响)再观察
+
+---
+
 ## 📋 服务器清单备忘(本项目定制)
 
 | 服务器 | 公网 IP | 数据库 | 账号 | 密码 | 关键端口 |
 |---|---|---|---|---|---|
-| **A 台 前台** | `47.236.172.111` | — | — | — | 80 / 443 |
-| **B 台 后台** | `47.236.95.137` | `zero` | `zero` | `zh123456` | 80 / 443 / 3001 |
-| MySQL | 仅 B 台本地 | `zero` | `zero` | `zh123456` | 3306(**不开公网**) |
+| **A 台 前台 + 后台** | `47.236.172.111` | — | — | — | 80 / 443 |
+| **B 台 后端** | `47.236.95.137` | `zero` | `zero` | `YOUR_DB_PASS` | 80 / 443(3001 **仅 127.0.0.1**) |
+| MySQL | 仅 B 台本地 | `zero` | `zero` | `YOUR_DB_PASS` | 3306(**仅 127.0.0.1**) |
 | **C 台 异地备份** | `C.C.C.C`(自填) | — | — | — | 22(SSH) |
+
+后台入口:`https://coin-asia.cc/manager/`(不再用 `http://IP:3001`)
 
 ---
 
@@ -1132,8 +1326,8 @@ C 台 (C.C.C.C,异地备份):
 ## 🎯 部署 Checklist(完成后逐条打勾)
 
 ### 主部署
-- [ ] B 台 MySQL 已建库 `zero`,账号 `zero`/`zh123456`,权限=本地服务器
-- [ ] B 台执行 `./scripts/init-db.sh --name zero --user zero --pass zh123456`,表已建
+- [ ] B 台 MySQL 已建库 `zero`,账号 `zero`/`YOUR_DB_PASS`,权限=本地服务器
+- [ ] B 台执行 `./scripts/init-db.sh --name zero --user zero --pass YOUR_DB_PASS`,表已建
 - [ ] B 台 `.env` 已写入 5 个 DB_* + PORT=3001
 - [ ] B 台 `pm2 logs exchange-admin` 显示 `Express API ready`
 - [ ] B 台 `curl http://127.0.0.1:3001/api/health` 返回 200
@@ -1144,6 +1338,21 @@ C 台 (C.C.C.C,异地备份):
 - [ ] B 台 Nginx 已加 SSE 的 `location ~ ^/api/members/\d+/stream$`(**`proxy_buffering off`**)
 - [ ] A 台 `curl http://47.236.172.111/api/health` 返回 200(说明前后台贯通)
 - [ ] 浏览器访问 `http://47.236.172.111` 看到登录页
+
+### 安全加固 + `/manager/` 目录(§10)
+
+- [ ] B 台已执行 `migrations/2026_admin_session_token.sql`(必须在新代码上线**之前**)
+- [ ] B 台 `.env` 已加 `ALLOWED_ORIGINS` / `COOKIE_SECURE=1` / `ALLOW_LEGACY_ADMIN_HEADER=0`
+- [ ] B 台 nginx `location /api/` 已加 `allow 47.236.172.111; deny all;`
+- [ ] 云安全组 + 宝塔安全:**3001、3306 已删掉公网入站规则**
+- [ ] MySQL `bind-address=127.0.0.1` 已配并重启
+- [ ] 后台已用 `VITE_BASE_PATH=/manager/ VITE_API_PREFIX=/manager/api` 构建
+- [ ] 后台 dist 已上传到 A 台 `/www/wwwroot/trade/manager/`
+- [ ] A 台 nginx 已有 `location /manager/` + `/manager/assets/` + `/manager/api/`
+- [ ] A 台 `/manager/` 段已加 `allow <你的IP>; deny all;`
+- [ ] `curl -I https://coin-asia.cc/manager/` 返回 200
+- [ ] `nc -zv 47.236.95.137 3001` 和 `3306` **连不上**
+- [ ] `SCAN_B_API=https://coin-asia.cc node scripts/scan-prod-readonly-audit.mjs` 输出「✅ 免密一个都读不到」
 
 ### 异地备份(§9)
 - [ ] C 台是**异地**机房,系统装好

@@ -13,6 +13,7 @@ node scripts/init-db.mjs
 #    或者手动:
 #    mysql -uroot -p < schema.sql
 #    mysql -uroot -p exchange_db < migrations/2026_fund_records_notes_text.sql
+#    mysql -uroot -p exchange_db < migrations/2026_admin_session_token.sql   # 后台令牌列(必须先跑)
 
 # 3. 后端起好(3001)
 npm run server
@@ -77,6 +78,70 @@ Chrome 的 profile 和截图默认落在 `admin/.cdp-cache/`（已在 `.gitignor
 | 文件 | 覆盖 |
 |---|---|
 | `test-stats-boundary.mjs` | 今日入款的时区边界：库里存 MySQL 服务器本地时间，"今天"按 IST(UTC+5:30) 切，插两条卡在午夜前后的记录验证新旧口径 |
+
+### 生产只读审计
+
+| 文件 | 覆盖 |
+|---|---|
+| `scan-prod-readonly-audit.mjs` | **只发 GET/OPTIONS，不写任何数据**，可以对着生产跑。查四件事：① CORS 会不会反射任意 Origin ② 安全响应头在不在 ③ 不带凭证能读到哪些接口 ④ 伪造 `X-Admin-Id` / Bearer 令牌能不能混进后台 ⑤ SSE 订阅有没有校验 token。跑完 `leaks === 0` 才算修干净（退出码 0/1） |
+
+```bash
+# 直连后端(B 台 3001)
+SCAN_B_API=http://47.236.95.137:3001 node scripts/scan-prod-readonly-audit.mjs
+
+# 或者走 nginx(应该已经被封了,连不上是正常的)
+SCAN_B_API=http://47.236.95.137 node scripts/scan-prod-readonly-audit.mjs
+```
+
+## 安全回归:阶段 K(`test-e2e.cjs`)
+
+后台/前台鉴权全部改成令牌之后,`test-e2e.cjs` 的 **K 阶段**专门盯这个:
+
+| 断言 | 期望 |
+|---|---|
+| K1 | 8 个接口不带凭证 → 403 |
+| K2 | 伪造 `X-Admin-Id: 1` → 403(老漏洞) |
+| K3 | 伪造 Bearer 令牌 → 403 |
+| K4 | 会员带自己的令牌读**别人**的数据 → 403 |
+| K5 | 会员带自己的令牌读**自己**的数据 → 200(不能把正常功能也堵了) |
+| K6 | 后台带正确令牌读会员 → 200 |
+| K7 | 会员给自己**改信用分/加钱/冻结/重置密码/启用禁用/删卡/删信** → 403(防提权) |
+| K8 | SSE 无 token 订阅 → 401 |
+| K9 | SSE 错 token 订阅 → 401 |
+| K10/K11 | 后台强制下线 → 旧 token 立刻失效 403 |
+
+> K7 是重点:如果"会员本人"和"后台管理员"共用同一个放行口,
+> 会员就能给自己改信用分 —— 那是提权。后端用 `requireAdminMember`(仅管理员)
+> 和 `requireMemberAccess`(管理员或本人)两个不同的守卫区分。
+
+## 本地模拟「挂到 /manager/ 目录」
+
+生产上后台是挂在 `https://coin-asia.cc/manager/` 下的(不再用裸 IP + 端口直接访问)。
+本地要复现这个形态:
+
+```bash
+cd admin
+
+# 1. 构建:资源路径挂到 /manager/,API 走 /manager/api
+VITE_BASE_PATH=/manager/ VITE_API_PREFIX=/manager/api npx vite build
+
+# 2. 本地预览这个 dist(vite 会把 /manager/api 代理到 3001)
+VITE_BASE_PATH=/manager/ VITE_API_PREFIX=/manager/api \
+  VITE_API_TARGET=http://localhost:3001 npx vite preview --port 5180
+
+# 打开 http://localhost:5180/manager/
+```
+
+两个环境变量的作用:
+
+| 变量 | 作用 | 生产值 |
+|---|---|---|
+| `VITE_BASE_PATH` | 静态资源根路径(`<script src>` / `<link href>`) | `/manager/` |
+| `VITE_API_PREFIX` | 后端 API 前缀,前端所有 `/api/xxx` 会被改写成 `/manager/api/xxx` | `/manager/api` |
+| `VITE_API_TARGET` | **仅开发/预览用**,vite 代理的后端地址 | `http://localhost:3001` |
+
+nginx 侧对应 `deploy/nginx-bt-a-site.conf` 里的 `location /manager/`(alias + try_files)和
+`location /manager/api/`(proxy_pass 到 B 台)。
 
 ## 地址和账号覆盖
 

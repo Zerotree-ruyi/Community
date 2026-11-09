@@ -102,6 +102,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
+  // 会员自己改密码 → 后端会旋转 session_token,组件会把新 token 写进 localStorage
+  //   这里监听一下,把内存里的 user 也换掉(SSE 才会用新 token 重新订阅)
+  useEffect(() => {
+    const onRotated = () => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        setUser(JSON.parse(raw) as User);
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('exchange_session_rotated', onRotated);
+    return () => window.removeEventListener('exchange_session_rotated', onRotated);
+  }, []);
+
   const persist = (u: User | null) => {
     setUser(u);
     if (u) localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
@@ -170,6 +184,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json().catch(() => ({} as any));
       const fresh: User | undefined = data?.user;
       if (!fresh) return;
+
+      // 401/403 = 身份对不上(令牌过期、被踢、或者老账号压根没有 session_token)。
+      //   这时候不能继续用本地的旧数据装正常 —— 让用户重新登录一次,
+      //   重新登录会发一个全新的 session_token,之后一切照旧。
+      if (res.status === 401 || res.status === 403) {
+        persist(null);
+        try {
+          sessionStorage.setItem(
+            'exchange_kicked_msg',
+            'Your session has expired. Please sign in again.'
+          );
+        } catch { /* ignore */ }
+        try { window.location.assign('/login'); } catch { /* ignore */ }
+        return;
+      }
 
       // 会话令牌被旋转 → 后台踢人
       if (current.session_token && fresh.session_token &&
@@ -242,24 +271,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         return;
       }
+      // 后台强制下线 / 作废会话 —— 立刻下线,不用等 15 秒轮询
+      if (payload?.type === 'session-revoked') {
+        try {
+          sessionStorage.setItem(
+            'exchange_kicked_msg',
+            'Your account has been logged in on another device or forcibly logged out by an administrator'
+          );
+        } catch { /* ignore */ }
+        try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+        try { window.location.assign('/login'); } catch { /* ignore */ }
+        return;
+      }
+
       const m = payload?.member;
       if (!m) return;
 
       setUser((prev) => {
         if (!prev || Number(prev.id) !== Number(m.id)) return prev;
-
-        // 会话令牌被旋转 → 后台踢人(和 refresh() 里的判断一致)
-        if (prev.session_token && m.session_token && prev.session_token !== m.session_token) {
-          try {
-            sessionStorage.setItem(
-              'exchange_kicked_msg',
-              'Your account has been logged in on another device or forcibly logged out by an administrator'
-            );
-          } catch { /* ignore */ }
-          try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
-          try { window.location.assign('/login'); } catch { /* ignore */ }
-          return null;
-        }
 
         // 账号被后台禁用 → 立刻下线(不用等 15 秒轮询)
         if (Number(m.status) === 0 && Number(prev.status) !== 0) {
@@ -277,7 +306,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           frozen: Number(m.frozen ?? prev.frozen),
           credit: String(m.credit ?? prev.credit),
           status: Number(m.status ?? prev.status),
-          session_token: m.session_token ?? prev.session_token,
         };
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
         return next;

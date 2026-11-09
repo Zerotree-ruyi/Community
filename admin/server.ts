@@ -9,7 +9,6 @@
  */
 
 import express from "express";
-import cors from "cors";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
@@ -37,8 +36,86 @@ const db = mysql.createPool({
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 const app = express();
-app.use(cors());
+app.disable("x-powered-by");
+
+// ─── CORS ────────────────────────────────────────────────────────────────────
+// 以前是 cors() —— 任意 Origin 都放行,等于任何网站都能拿浏览器里的登录态
+// 调你的接口。现在改成白名单:
+//   - 没有 Origin(curl / 服务端调用)→ 不加 CORS 头,直接放行
+//   - Origin 的 host 和请求自己的 host 一样(同源,含 nginx 反代和 vite 代理)→ 放行
+//   - Origin 在 ALLOWED_ORIGINS 里(逗号分隔)→ 放行
+//   - 其余 → 不给 ACAO 头,浏览器自己拦掉
+//
+// ⚠️ 这里没有用 cors 包:那个包的 `origin: false` 会被当成「不限制」,
+//    反而回一个 Access-Control-Allow-Origin: *,跟想要的正好相反。
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+
+function originAllowed(origin: string | undefined, host: string | undefined): boolean {
+  if (!origin) return true;                       // curl / 服务端调用
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  if (origin === "null") return false;            // sandbox iframe / 本地文件
+  try {
+    if (host && new URL(origin).host === host) return true;   // 同源
+  } catch { /* origin 不是合法 URL → 落到下面拒绝 */ }
+  return false;
+}
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && originAllowed(origin, req.headers.host)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      String(req.headers["access-control-request-headers"]
+        || "Content-Type, Authorization, X-Member-Token, X-Admin-Id")
+    );
+    res.setHeader("Access-Control-Max-Age", "600");
+  }
+  // 预检请求:不管允不允许,都直接回 204(不允许的话浏览器看不到 CORS 头,自己拦掉)
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 app.use(express.json());
+
+// ─── 安全响应头 ──────────────────────────────────────────────────────────────
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  // HSTS 只有在真的上了 HTTPS 才有意义 —— 显式开闸,别在纯 HTTP 上开
+  if (process.env.ENABLE_HSTS === "1") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
+
+// ─── 登录限流 ────────────────────────────────────────────────────────────────
+// 单进程内存计数(够用;以后要多实例就换 Redis)。同一 IP 连续失败 N 次锁 M 分钟。
+const LOGIN_MAX_FAIL = 8;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+const loginFail = new Map<string, { count: number; until: number }>();
+
+function loginBlocked(key: string): boolean {
+  const rec = loginFail.get(key);
+  if (!rec) return false;
+  if (Date.now() > rec.until) { loginFail.delete(key); return false; }
+  return rec.count >= LOGIN_MAX_FAIL;
+}
+function loginFailed(key: string): void {
+  const rec = loginFail.get(key) ?? { count: 0, until: 0 };
+  rec.count += 1;
+  rec.until = Date.now() + LOGIN_LOCK_MS;
+  loginFail.set(key, rec);
+}
+function loginSucceeded(key: string): void {
+  loginFail.delete(key);
+}
 
 // ─── 会员实时推送(SSE)────────────────────────────────────────────────────────
 // 需求:后台改了会员的信用分/余额/冻结/状态,会员正在开着的页面要立刻看到,
@@ -52,17 +129,25 @@ app.use(express.json());
 // 注意:
 //   - 心跳每 25 秒一次,防止 nginx / 运营商掐掉空闲连接
 //   - 订阅者断开时从 Set 里删掉,避免内存泄漏
-type MemberEvent = {
-  type: "member-updated";
-  member: {
-    id: number;
-    balance: string;
-    frozen: string;
-    credit: string;
-    status: number;
-    session_token: string | null;
-  };
-};
+// ⚠️ 推送里**绝对不能带 session_token**。
+//    这条流走 URL query(带 token),nginx 会把 URL 写进 access log;
+//    如果 payload 里再回吐一次 token,等于把凭据同时泄到日志和浏览器历史里。
+//    需要判断"会话是否被旋转(后台踢人)"时,改推 session-revoked 事件。
+type MemberEvent =
+  | {
+      type: "member-updated";
+      member: {
+        id: number;
+        balance: string;
+        frozen: string;
+        credit: string;
+        status: number;
+      };
+    }
+  | {
+      type: "session-revoked";
+      member_id: number;
+    };
 
 const memberStreams = new Map<number, Set<express.Response>>();
 
@@ -73,7 +158,7 @@ function pushMemberUpdate(memberId: number) {
   void (async () => {
     try {
       const [rows] = await db.query(
-        `SELECT id, balance, frozen, credit, status, session_token FROM members WHERE id = ? LIMIT 1`,
+        `SELECT id, balance, frozen, credit, status FROM members WHERE id = ? LIMIT 1`,
         [memberId]
       );
       const m = (rows as any[])[0];
@@ -86,7 +171,6 @@ function pushMemberUpdate(memberId: number) {
           frozen: String(m.frozen),
           credit: String(m.credit ?? "0|1"),
           status: Number(m.status),
-          session_token: m.session_token ?? null,
         },
       };
       const data = `data: ${JSON.stringify(payload)}\n\n`;
@@ -107,6 +191,29 @@ function pushMemberUpdate(memberId: number) {
 /** 会员状态变化后调用 —— 信用分/余额/冻结/状态/被踢下线 */
 function notifyMemberChanged(memberId: number) {
   pushMemberUpdate(memberId);
+}
+
+/**
+ * 推「会话已被作废」事件 —— 后台强制下线 / 重置密码时用。
+ * 前台收到就直接登出,不用等 15 秒轮询。
+ * 不带 token 本身,只带一个信号。
+ */
+function pushSessionRevoked(memberId: number) {
+  const subs = memberStreams.get(memberId);
+  if (!subs || subs.size === 0) return;
+  const payload: MemberEvent = { type: "session-revoked", member_id: memberId };
+  const data = `data: ${JSON.stringify(payload)}\n\n`;
+  for (const res of subs) {
+    try {
+      res.write(data);
+      // 顺手把连接掐了 —— token 已经作废,这条流不该再活着
+      res.end();
+    } catch {
+      /* ignore */
+    }
+    subs.delete(res);
+  }
+  memberStreams.delete(memberId);
 }
 
 // 请求日志(静默高频 settle-due 兜底,避免 2 秒一条刷屏)
@@ -337,10 +444,29 @@ function safePwdServer(input: string): string {
 //   - super:看全部客户
 //   - admin / operator:只看 agent_id = 自己 的客户
 //
-// 实现方式:前端从 localStorage 取当前 admin.id,所有 /api/members/* 请求
-//          都带上 header X-Admin-Id。后端不依赖 cookie/session(本期),
-//          仅做行级过滤。安全性边界与改动前一致(都信任前端),只是增加业务规则。
+// 实现方式:后台登录时后端签发一个随机令牌(存在 admin_users.session_token),
+//          前端存 localStorage,之后每个请求带上 Authorization: Bearer <令牌>。
+//          ⚠️ 老的 X-Admin-Id 头(任何人都能随便填个 id)默认不再认 ——
+//             只在显式开闸 ALLOW_LEGACY_ADMIN_HEADER=1 时才兼容(本地老脚本用),
+//             生产 .env 里绝对不要设这个变量。
 async function getCurrentAdmin(req: any): Promise<{ id: number; role: string } | null> {
+  // ① 正式方式:Authorization: Bearer <登录令牌>
+  const authz = String(req.headers?.authorization ?? "");
+  const bearer = /^Bearer\s+(.+)$/i.exec(authz)?.[1]?.trim() ?? "";
+  if (bearer) {
+    const [rows] = await db.query(
+      `SELECT id, role, status, session_expires_at FROM admin_users
+        WHERE session_token = ? AND session_token <> '' LIMIT 1`,
+      [bearer]
+    );
+    const u = (rows as any[])[0];
+    if (!u || Number(u.status) !== 1) return null;
+    if (u.session_expires_at && new Date(u.session_expires_at).getTime() < Date.now()) return null;
+    return { id: Number(u.id), role: u.role };
+  }
+
+  // ② 旧方式:X-Admin-Id —— 默认关闭
+  if (process.env.ALLOW_LEGACY_ADMIN_HEADER !== "1") return null;
   const raw = req.headers?.["x-admin-id"];
   const id = Number(raw);
   if (!Number.isFinite(id) || id <= 0) return null;
@@ -351,6 +477,37 @@ async function getCurrentAdmin(req: any): Promise<{ id: number; role: string } |
   const u = (rows as any[])[0];
   if (!u || u.status !== 1) return null;
   return { id: u.id, role: u.role };
+}
+
+// ─── 会员会话 ────────────────────────────────────────────────────────────────
+// 前台会员靠「自己的 session_token」证明身份,而不是靠一个裸的 member_id 参数。
+// 取 token 的三个来源(按可靠性排序):
+//   1. HttpOnly cookie `session` —— 注册/登录时后端已经种下,浏览器自动带
+//   2. 请求头 `X-Member-Token`   —— 前端 fetch 包装器从 localStorage 显式注入
+//   3. query `?token=`            —— EventSource 不能带 header,只能用这个
+function readMemberToken(req: any): string {
+  const cookie = String(req.headers?.cookie ?? "");
+  const m = /(?:^|;\s*)session=([^;]+)/.exec(cookie);
+  if (m?.[1]) {
+    try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+  }
+  const hdr = String(req.headers?.["x-member-token"] ?? "").trim();
+  if (hdr) return hdr;
+  const q = String(req.query?.token ?? "").trim();
+  if (q) return q;
+  return "";
+}
+
+// 当前登录会员(没有有效 token → null)
+async function getCurrentMember(req: any): Promise<{ id: number } | null> {
+  const token = readMemberToken(req);
+  if (!token) return null;
+  const [rows] = await db.query(
+    `SELECT id FROM members WHERE session_token = ? AND session_token <> '' LIMIT 1`,
+    [token]
+  );
+  const m = (rows as any[])[0];
+  return m ? { id: Number(m.id) } : null;
 }
 
 // 0 行代表越权 — 把所有「非 super」拉黑,强制前端至少要知道当前 admin
@@ -368,28 +525,98 @@ async function memberScopeWhere(req: any, alias = ""): Promise<string> {
   return ` AND ${p}agent_id = ${Number(me.id)}`;
 }
 
-// 单会员访问拦截 — 用于 :id 路径的所有 mutation / 详情接口
+// 单会员访问拦截 — 用于「会员本人可以操作自己的数据」的接口
 //   返回 null = 已写 res,调用方直接 return
 //   返回 { agent_id } = 校验通过,可继续操作
-//   若调用方没带 X-Admin-Id(前台用户自己访问自己的资源)→ 直接放行,返回 sentinel
+//
+// 身份两种,优先级从高到低:
+//   1. 后台管理员 —— 按角色做归属过滤(super 看全部,员工只看自己客户)
+//   2. 会员本人   —— session_token 属于这个 member 才放行(自己的钱、自己的卡)
+//   3. 什么都没有 —— 403。
+//      ⚠️ 以前这里是"直接放行",等于任何人改一下 member_id
+//         就能看/改别人的数据 —— 免密可读可写就是这么来的。
+//
+// ⚠️ ⚠️ 只给「读自己的数据 + 操作自己的钱包」用。
+//    改信用分/加钱/冻结/重置密码这类后台专属操作用 requireAdminMember,
+//    否则会员就能给自己改信用分 —— 那是提权。
 async function requireMemberAccess(req: any, res: any, memberId: number): Promise<{ agent_id: number } | null> {
   const me = await getCurrentAdmin(req);
-  if (!me) return { agent_id: -1 };   // 非 admin 上下文(前台用户),跳过归属校验
+  if (me) {
+    const [rows] = await db.query(
+      `SELECT agent_id FROM members WHERE id = ? LIMIT 1`,
+      [memberId]
+    );
+    const m = (rows as any[])[0];
+    if (!m) {
+      // 会员不存在 — 可能是老数据孤儿卡(member 已被删,卡还在)。
+      // 仍然放行(让后续 UPDATE / DELETE 决定),方便后台清理这种孤儿数据。
+      return { agent_id: -1 };
+    }
+    if (me.role !== "super" && Number(m.agent_id) !== me.id) {
+      deny(res, "forbidden", "This member is not in your team");
+      return null;
+    }
+    return { agent_id: Number(m.agent_id) };
+  }
+
+  // 会员本人 —— token 必须对得上这个 member
+  const self = await getCurrentMember(req);
+  if (self && self.id === Number(memberId)) {
+    return { agent_id: -1 };   // sentinel:不是后台归属,调用方只判真假,不看这个值
+  }
+
+  deny(res, "forbidden", "无权访问该会员数据");
+  return null;
+}
+
+// 后台专属的会员操作 —— 必须是管理员,会员本人也不行
+//   用于:改信用分 / 启用禁用 / 加钱扣钱 / 冻结 / 重置密码 / 审核提现 / 强制下线
+async function requireAdminMember(req: any, res: any, memberId: number): Promise<{ agent_id: number } | null> {
+  const me = await getCurrentAdmin(req);
+  if (!me) {
+    deny(res, "no_admin", "该操作仅限管理员");
+    return null;
+  }
   const [rows] = await db.query(
     `SELECT agent_id FROM members WHERE id = ? LIMIT 1`,
     [memberId]
   );
   const m = (rows as any[])[0];
-  if (!m) {
-    // 会员不存在 — 可能是老数据孤儿卡(member 已被删,卡还在)。
-    // 仍然放行(让后续 UPDATE / DELETE 决定),方便后台清理这种孤儿数据。
-    return { agent_id: -1 };
-  }
+  if (!m) return { agent_id: -1 };   // 会员不存在 —— 交给后续 UPDATE/DELETE 决定
   if (me.role !== "super" && Number(m.agent_id) !== me.id) {
     deny(res, "forbidden", "This member is not in your team");
     return null;
   }
   return { agent_id: Number(m.agent_id) };
+}
+
+// 「我的 xxx」系列接口的统一守卫 —— 前台会员查自己的数据用
+//   admin → 放行(后台也能用这些接口)
+//   本人 → 放行
+//   其他 → 403
+async function requireSelfOrAdmin(req: any, res: any, memberId: number): Promise<boolean> {
+  const me = await getCurrentAdmin(req);
+  if (me) return true;
+  const self = await getCurrentMember(req);
+  if (self && self.id === Number(memberId)) return true;
+  deny(res, "forbidden", "只能查看自己的数据");
+  return false;
+}
+
+// 只要是后台管理员就放行(不分角色)
+async function requireAdmin(req: any, res: any): Promise<{ id: number; role: string } | null> {
+  const me = await getCurrentAdmin(req);
+  if (!me) { deny(res, "no_admin", "未识别管理员"); return null; }
+  return me;
+}
+
+// 任意一种有效身份都放行(后台管理员 或 已登录会员)
+//   用在「前台也会调、又不该匿名调」的接口上(比如结算触发)
+async function requireAnySession(req: any, res: any): Promise<boolean> {
+  if (await getCurrentAdmin(req)) return true;
+  if (await getCurrentMember(req)) return true;
+  deny(res, "unauthorized", "请先登录");
+  return false;
 }
 
 // 角色守卫 — 仅允许指定角色访问(常用于 super-only 接口)
@@ -492,7 +719,7 @@ app.post("/api/auth/register", async (req, res) => {
       // 同时下发 HttpOnly cookie(给浏览器/扩展看到的是乱码强密码,JSON 里仍有 session_token 供现有逻辑读取)
       res.cookie('session', sessionToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: process.env.COOKIE_SECURE === '1',   // 只有真上了 HTTPS 才开;纯 HTTP 下开了浏览器会拒收
         sameSite: 'lax',
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 天
       });
@@ -517,6 +744,12 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(400).json({ error: "invalid_input",
         message: "Please enter your account and password" });
     }
+    // 登录限流 —— 同一 IP + 同一账号连着试密码就锁 15 分钟
+    const failKey = `member:${getClientIp(req)}:${String(account).slice(0, 64)}`;
+    if (loginBlocked(failKey)) {
+      return res.status(429).json({ error: "too_many_attempts",
+        message: "Too many failed attempts. Please try again later." });
+    }
 
     const [rows] = await db.query(
       `SELECT id, account, nickname, phone, email, gender, remark,
@@ -528,19 +761,23 @@ app.post("/api/auth/login", async (req, res) => {
     );
     const user = (rows as any[])[0];
     if (!user) {
+      loginFailed(failKey);
       return res.status(401).json({ error: "not_found",
         message: "Account does not exist" });
     }
     if (user.status === 0) {
+      loginFailed(failKey);
       return res.status(403).json({ error: "account_disabled",
         message: "Account is disabled" });
     }
     const ok = bcrypt.compareSync(String(password), user.password_hash);
     if (!ok) {
+      loginFailed(failKey);
       return res.status(401).json({ error: "wrong_password",
         message: "Incorrect password" });
     }
     // 登录成功 → 重新生成 session_token,旧 token 立即失效(强制下线场景)
+    loginSucceeded(failKey);
     const sessionToken = newSessionToken();
     // first_login_time / first_login_ip 只在第一次登录时写入(COALESCE 保持原值)
     // last_login_* 每次登录都覆盖 — IP 存整条链(双栈时是 "ipv6, ipv4")
@@ -561,7 +798,7 @@ app.post("/api/auth/login", async (req, res) => {
     // 同时下发 HttpOnly cookie(给浏览器/扩展看到的是乱码强密码,JSON 里仍有 session_token 供现有逻辑读取)
     res.cookie('session', sessionToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.COOKIE_SECURE === '1',   // 只有真上了 HTTPS 才开;纯 HTTP 下开了浏览器会拒收
       sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 天
     });
@@ -585,6 +822,8 @@ app.post("/api/auth/change-password", async (req, res) => {
       return res.status(400).json({ error: "invalid_member_id",
         message: "Invalid member ID" });
     }
+    // 只能改自己的密码 —— 以前任何人都能提交 member_id 改别人的密码
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     if (!oldPwd) {
       return res.status(400).json({ error: "missing_old_password",
         message: "Please enter your current password" });
@@ -615,9 +854,17 @@ app.post("/api/auth/change-password", async (req, res) => {
     }
 
     const newHash = bcrypt.hashSync(newPwd, 10);
-    await db.query(`UPDATE members SET password_hash = ? WHERE id = ?`, [newHash, memberId]);
+    // 改密码 → 顺手旋转 session_token。
+    //   理由:密码都改了,别人偷到的旧 token 也该立刻失效,否则
+    //   "改密码"这个动作等于没做安全动作。
+    //   新 token 回给前端存起来,本人不会被踢下线。
+    const newToken = newSessionToken();
+    await db.query(
+      `UPDATE members SET password_hash = ?, session_token = ? WHERE id = ?`,
+      [newHash, newToken, memberId]
+    );
 
-    return res.json({ ok: true, account: m.account });
+    return res.json({ ok: true, account: m.account, session_token: newToken });
   } catch (err: any) {
     console.error("[auth/change-password]", err);
     res.status(500).json({ error: "server_error", message: err.message });
@@ -639,6 +886,8 @@ app.post("/api/auth/change-fund-password", async (req, res) => {
       return res.status(400).json({ error: "invalid_member_id",
         message: "Invalid member ID" });
     }
+    // 只能改自己的资金密码
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     if (!RE_FUND_PWD.test(newPwd)) {
       return res.status(400).json({ error: "invalid_fund_password",
         message: "New fund password format is incorrect" });
@@ -699,12 +948,26 @@ function newSessionToken(): string {
   return randomUUID().replace(/-/g, "");
 }
 
+// ─── 后台登录令牌 ────────────────────────────────────────────────────────────
+// 登录时签发,存 admin_users.session_token,之后每个请求用
+// Authorization: Bearer <令牌> 带回来。有效期 12 小时,过期要重新登录。
+const ADMIN_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+function newAdminToken(): string {
+  return (randomUUID() + randomUUID()).replace(/-/g, "");
+}
+
 app.post("/api/admin/login", async (req, res) => {
   try {
     const { username, password } = req.body ?? {};
     if (!username || !password) {
       return res.status(400).json({ error: "invalid_input",
         message: "Please enter your account and password" });
+    }
+    // 登录限流 —— 同一 IP 连着试密码就锁 15 分钟
+    const failKey = `admin:${getClientIp(req)}`;
+    if (loginBlocked(failKey)) {
+      return res.status(429).json({ error: "too_many_attempts",
+        message: "Too many failed attempts. Please try again later." });
     }
     const [rows] = await db.query(
       `SELECT id, username, password_hash, display_name, role, status,
@@ -714,6 +977,7 @@ app.post("/api/admin/login", async (req, res) => {
     );
     const admin = (rows as any[])[0];
     if (!admin) {
+      loginFailed(failKey);
       return res.status(401).json({ error: "not_found", message: "Account does not exist" });
     }
     if (admin.status === 0) {
@@ -721,28 +985,62 @@ app.post("/api/admin/login", async (req, res) => {
     }
     const ok = bcrypt.compareSync(String(password), admin.password_hash);
     if (!ok) {
+      loginFailed(failKey);
       return res.status(401).json({ error: "wrong_password", message: "Incorrect password" });
     }
     const ip = getClientIp(req);
     // IP 白名单校验(员工角色才生效,super 不受限)
     const whitelist = await loadIpWhitelist(admin.id, admin.role);
     if (!isIpAllowed(ip, whitelist)) {
+      loginFailed(failKey);
       return res.status(403).json({
         error: "ip_not_allowed",
         message: "Your current IP is not in the whitelist and cannot sign in",
       });
     }
-    // 更新最后登录时间 + IP
+    // 更新最后登录时间 + IP,并签发登录令牌
+    //   令牌取代了原来那个「谁都能填」的 X-Admin-Id 头 ——
+    //   没有有效令牌,后台接口一律 403。
+    loginSucceeded(failKey);
+    const token = newAdminToken();
+    const expiresAt = new Date(Date.now() + ADMIN_TOKEN_TTL_MS);
     await db.query(
-      "UPDATE admin_users SET last_login_time = NOW(), last_login_ip = ? WHERE id = ?",
-      [ip, admin.id]
+      `UPDATE admin_users
+          SET last_login_time = NOW(), last_login_ip = ?,
+              session_token = ?, session_expires_at = ?, session_ip = ?
+        WHERE id = ?`,
+      [ip, token, expiresAt, ip, admin.id]
     );
     admin.last_login_time = new Date();
     admin.last_login_ip   = ip;
     delete admin.password_hash;
-    return res.json({ user: admin, current_ip: ip });
+    return res.json({
+      user: admin,
+      current_ip: ip,
+      token,
+      expires_at: expiresAt.toISOString(),
+    });
   } catch (err: any) {
     console.error("[admin/login]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// 登出 —— 作废当前令牌(前端清 localStorage 前先调它)
+app.post("/api/admin/logout", async (req, res) => {
+  try {
+    const authz = String(req.headers?.authorization ?? "");
+    const bearer = /^Bearer\s+(.+)$/i.exec(authz)?.[1]?.trim() ?? "";
+    if (bearer) {
+      await db.query(
+        `UPDATE admin_users SET session_token = '', session_expires_at = NULL
+          WHERE session_token = ?`,
+        [bearer]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[admin/logout]", err);
     res.status(500).json({ error: "server_error", message: err.message });
   }
 });
@@ -953,7 +1251,9 @@ async function getPublicIp(): Promise<{ ip: string; source: string } | null> {
 }
 
 // 诊断端点 — 排查时直接访问 http://localhost:3001/api/admin/public-ip-diag
-app.get("/api/admin/public-ip-diag", async (_req, res) => {
+app.get("/api/admin/public-ip-diag", async (req, res) => {
+  // 诊断接口会吐出本机出站 IP 和代理环境变量 —— 只给后台看
+  if (!(await requireAdmin(req, res))) return;
   const results = await probeAllSources();
   res.json({
     cache: publicIpCache,
@@ -985,14 +1285,19 @@ app.get("/api/admin/login-context", async (req, res) => {
     }
     const publicIp = await getPublicIp();
     let last: { last_login_time: string | null; last_login_ip: string | null } | null = null;
-    if (username) {
+    // ⚠️ 「上次登录 IP」只在该请求者本身就是这个账号(带有效令牌)时才给。
+    //    以前这里是任何人传个 username 就能查到任意管理员的上次登录 IP。
+    const me = await getCurrentAdmin(req);
+    if (username && me) {
       const [rows] = await db.query(
-        `SELECT last_login_time, last_login_ip
+        `SELECT username, last_login_time, last_login_ip
            FROM admin_users WHERE username = ? LIMIT 1`,
         [username]
       );
       const u = (rows as any[])[0];
-      if (u) last = { last_login_time: u.last_login_time, last_login_ip: u.last_login_ip };
+      if (u && u.username === username) {
+        last = { last_login_time: u.last_login_time, last_login_ip: u.last_login_ip };
+      }
     }
     res.json({
       current_ip:    ip,
@@ -1007,11 +1312,20 @@ app.get("/api/admin/login-context", async (req, res) => {
   }
 });
 
-app.get("/api/admin/me", async (_req, res) => {
+app.get("/api/admin/me", async (req, res) => {
   try {
-    // 本期不实现 token 校验,前端只调一次拿当前 user(从 localStorage)
-    // 保留接口为以后扩展
-    res.json({ user: null });
+    // 现在真的校验令牌 —— 前端拿它确认「本地存的登录态还有效」
+    const me = await getCurrentAdmin(req);
+    if (!me) return res.status(401).json({ error: "unauthorized", message: "Not signed in" });
+    const [rows] = await db.query(
+      `SELECT id, username, display_name, role, status, invite_code,
+              last_login_time, created_at
+         FROM admin_users WHERE id = ? LIMIT 1`,
+      [me.id]
+    );
+    const u = (rows as any[])[0];
+    if (!u) return res.status(401).json({ error: "unauthorized", message: "Not signed in" });
+    res.json({ user: u });
   } catch (err: any) {
     res.status(500).json({ error: "server_error", message: err.message });
   }
@@ -1019,6 +1333,9 @@ app.get("/api/admin/me", async (_req, res) => {
 
 app.post("/api/admin/change-password", async (req, res) => {
   try {
+    // 必须是登录中的后台(以前这个接口谁都能调)
+    const me = await requireAdmin(req, res);
+    if (!me) return;
     const { id, oldPassword, newPassword } = req.body ?? {};
     if (!id || !oldPassword || !newPassword) {
       return res.status(400).json({ error: "invalid_input",
@@ -1027,6 +1344,10 @@ app.post("/api/admin/change-password", async (req, res) => {
     if (String(newPassword).length < 6 || String(newPassword).length > 32) {
       return res.status(400).json({ error: "invalid_password",
         message: "New password must be 6-32 characters" });
+    }
+    // 只能改自己的密码;super 才能改别人的
+    if (Number(id) !== me.id && me.role !== "super") {
+      return res.status(403).json({ error: "forbidden", message: "只能修改自己的密码" });
     }
     const [rows] = await db.query(
       "SELECT id, password_hash FROM admin_users WHERE id = ? LIMIT 1",
@@ -1041,11 +1362,16 @@ app.post("/api/admin/change-password", async (req, res) => {
       return res.status(401).json({ error: "wrong_password", message: "Current password is incorrect" });
     }
     const newHash = bcrypt.hashSync(String(newPassword), 10);
+    // 改完密码顺手把登录令牌换掉 —— 旧令牌(可能已经泄露)立刻失效
+    const newToken = newAdminToken();
+    const expiresAt = new Date(Date.now() + ADMIN_TOKEN_TTL_MS);
     await db.query(
-      "UPDATE admin_users SET password_hash = ? WHERE id = ?",
-      [newHash, id]
+      `UPDATE admin_users
+          SET password_hash = ?, session_token = ?, session_expires_at = ?
+        WHERE id = ?`,
+      [newHash, newToken, expiresAt, id]
     );
-    return res.json({ ok: true });
+    return res.json({ ok: true, token: newToken, expires_at: expiresAt.toISOString() });
   } catch (err: any) {
     console.error("[admin/change-password]", err);
     res.status(500).json({ error: "server_error", message: err.message });
@@ -1668,7 +1994,7 @@ app.put("/api/members/:id", async (req, res) => {
     return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
   }
   // 数据归属校验
-  const access = await requireMemberAccess(req, res, memberId);
+  const access = await requireAdminMember(req, res, memberId);
   if (!access) return;
   const reviewer = String(req.body?.reviewer ?? "admin").slice(0, 64);
 
@@ -1762,6 +2088,8 @@ app.get("/api/auth/me", async (req, res) => {
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
     }
+    // 只能查自己的(带 session_token),后台也能查
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     const [rows] = await db.query(
       `SELECT id, account, nickname, phone, email, gender, remark,
               status, balance, frozen, credit, win_mode, tag, direction,
@@ -1799,11 +2127,15 @@ app.get("/api/members/:id/stream", async (req, res) => {
     return res.status(404).json({ error: "not_found", message: "Member does not exist" });
   }
 
-  // 会话校验:会员有 session_token 就必须带上,而且要对得上。
+  // 会话校验:必须带上这个会员自己的 session_token,且要完全对得上。
   // (EventSource 不能自定义 header,所以 token 只能走 query)
-  // 对不上就 401 —— 前台会自动退回 15 秒轮询,不影响功能。
+  //
+  // ⚠️ 以前是 `if (member.session_token && token !== member.session_token)` ——
+  //    会员没有 token(老账号)时等于谁来都能订阅,改一下 URL 里的 id
+  //    就能看到别人的余额/信用分。现在要求严格相等,老账号拿不到流,
+  //    前台会自动退回 15 秒轮询,功能不受影响。
   const token = String(req.query.token ?? "");
-  if (member.session_token && token !== member.session_token) {
+  if (!member.session_token || token !== member.session_token) {
     return res.status(401).json({ error: "invalid_token", message: "Session token mismatch" });
   }
 
@@ -1846,7 +2178,7 @@ app.post("/api/members/:id/toggle-status", async (req, res) => {
     const memberId = Number(req.params.id);
     if (!Number.isFinite(memberId) || memberId <= 0)
       return res.status(400).json({ error: "invalid_member_id" });
-    const access = await requireMemberAccess(req, res, memberId);
+    const access = await requireAdminMember(req, res, memberId);
     if (!access) return;
     await db.query("UPDATE members SET status = 1 - status WHERE id = ?", [memberId]);
     notifyMemberChanged(memberId);
@@ -1975,6 +2307,8 @@ app.get("/api/withdrawals/mine", async (req, res) => {
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id" });
     }
+    // 只有本人(带 session_token)或后台管理员能查
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     const status = req.query.status ? `AND status = ${mysql.escape(String(req.query.status))}` : "";
     const [rows] = await db.query(
       `SELECT * FROM withdrawals
@@ -2003,6 +2337,8 @@ app.post("/api/withdrawals", async (req, res) => {
 
   if (!Number.isFinite(memberId) || memberId <= 0)
     return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
+  // 只能用自己的名义提现
+  if (!(await requireSelfOrAdmin(req, res, memberId))) return;
   if (!walletType || !Number.isFinite(walletId) || walletId <= 0)
     return res.status(400).json({ error: "invalid_wallet",  message: "Please select a withdrawal wallet" });
   if (!Number.isFinite(amount) || amount <= 0)
@@ -2134,7 +2470,7 @@ app.post("/api/withdrawals/:id/approve", async (req, res) => {
     [wid]
   );
   if (!(wPre as any[])[0]) return res.status(404).json({ error: "not_found", message: "Withdrawal request does not exist" });
-  const access = await requireMemberAccess(req, res, Number((wPre as any[])[0].member_id));
+  const access = await requireAdminMember(req, res, Number((wPre as any[])[0].member_id));
   if (!access) return;
 
   const reviewer  = String(req.body?.reviewer ?? "admin").slice(0, 64);
@@ -2223,7 +2559,7 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
     [wid]
   );
   if (!(wPre as any[])[0]) return res.status(404).json({ error: "not_found", message: "Withdrawal request does not exist" });
-  const access = await requireMemberAccess(req, res, Number((wPre as any[])[0].member_id));
+  const access = await requireAdminMember(req, res, Number((wPre as any[])[0].member_id));
   if (!access) return;
 
   const reviewer     = String(req.body?.reviewer ?? "admin").slice(0, 64);
@@ -2321,6 +2657,8 @@ app.post("/api/withdrawals/:id/reject", async (req, res) => {
 // 列出数字币钱包(后台)— 支持按 member 过滤
 app.get("/api/wallets/digital", async (req, res) => {
   try {
+    // 全量钱包列表(含地址、余额)只给后台 —— 以前免密码就能拉走整张表
+    if (!(await requireAdmin(req, res))) return;
     const memberId = req.query.member_id ? Number(req.query.member_id) : null;
     const memberAcct = req.query.member_account ? String(req.query.member_account).trim() : "";
     const where: string[] = [];
@@ -2355,6 +2693,9 @@ app.get("/api/wallets/digital", async (req, res) => {
 // 列出银行卡钱包(后台)— 支持按 member 过滤
 app.get("/api/wallets/bank", async (req, res) => {
   try {
+    // 全量银行卡列表(含卡号/持卡人/身份证号)只给后台
+    //   —— 以前这个接口免密码就能拉走 100 张卡和身份证号,是最严重的一个洞
+    if (!(await requireAdmin(req, res))) return;
     const memberId = req.query.member_id ? Number(req.query.member_id) : null;
     const memberAcct = req.query.member_account ? String(req.query.member_account).trim() : "";
     const where: string[] = [];
@@ -2402,7 +2743,7 @@ app.delete("/api/wallets/bank/:wid", async (req, res) => {
   const w = (rows as any[])[0];
   if (!w) return res.status(404).json({ error: "not_found", message: "Card does not exist" });
   // 数据归属校验
-  const access = await requireMemberAccess(req, res, Number(w.member_id));
+  const access = await requireAdminMember(req, res, Number(w.member_id));
   if (!access) return;
 
   // 有多少笔提现引用了这张卡(只提示,不影响删除)
@@ -2439,7 +2780,7 @@ app.delete("/api/wallets/digital/:wid", async (req, res) => {
   );
   const w = (rows as any[])[0];
   if (!w) return res.status(404).json({ error: "not_found", message: "Wallet does not exist" });
-  const access = await requireMemberAccess(req, res, Number(w.member_id));
+  const access = await requireAdminMember(req, res, Number(w.member_id));
   if (!access) return;
 
   const [refRows] = await db.query(
@@ -2754,7 +3095,7 @@ app.get("/api/funds", async (req, res) => {
         if ((u as any[])[0]) probeMemberId = Number((u as any[])[0].id);
       }
       if (probeMemberId !== null) {
-        const access = await requireMemberAccess(req, res, probeMemberId);
+        const access = await requireAdminMember(req, res, probeMemberId);
         if (!access) return;
       }
       where.push("agent_id = ?");
@@ -2793,6 +3134,7 @@ app.get("/api/funds/mine", async (req, res) => {
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id" });
     }
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     const [rows] = await db.query(
       `SELECT id, agent_id, invite_code, member_id, \`before\`, amount, \`after\`, type, notes, time
          FROM fund_records
@@ -2814,6 +3156,7 @@ app.get("/api/messages/unread", async (req, res) => {
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id" });
     }
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     const [rows] = await db.query(
       `SELECT COUNT(*) AS cnt FROM messages
         WHERE (member_id IS NULL OR member_id = ?) AND read_time IS NULL`,
@@ -2832,6 +3175,7 @@ app.get("/api/messages/mine", async (req, res) => {
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id" });
     }
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     const limit = Math.min(Number(req.query.limit ?? 100), 500);
     const [rows] = await db.query(
       `SELECT id, member_id, title, content, sender, send_time, read_time
@@ -2861,6 +3205,7 @@ app.post("/api/messages/:id/read", async (req, res) => {
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: "invalid_id" });
     const memberId = Number(req.body?.member_id);
     if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     // 只有发给该会员(或全员)的消息才能标记
     const [rows] = await db.query(
       `SELECT id, member_id FROM messages WHERE id = ? AND (member_id IS NULL OR member_id = ?)`,
@@ -2877,6 +3222,8 @@ app.post("/api/messages/:id/read", async (req, res) => {
 // 后台发信 — member_id 不传 = 全员广播
 app.post("/api/messages", async (req, res) => {
   try {
+    // 只有后台能发信(前台不开放)
+    if (!(await requireAdmin(req, res))) return;
     const memberId = req.body?.member_id === undefined || req.body?.member_id === null
       ? null
       : Number(req.body.member_id);
@@ -2890,7 +3237,7 @@ app.post("/api/messages", async (req, res) => {
     }
     // 数据归属校验 — 给非自己客户发信 → 403
     if (memberId !== null) {
-      const access = await requireMemberAccess(req, res, memberId);
+      const access = await requireAdminMember(req, res, memberId);
       if (!access) return;
     }
     const [r] = await db.query(
@@ -2912,7 +3259,7 @@ app.post("/api/members/:id/recharge", async (req, res) => {
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
   if (!Number.isFinite(amount) || amount <= 0)     return res.status(400).json({ error: "invalid_amount", message: "Amount must be a positive number" });
   // 数据归属校验
-  const access = await requireMemberAccess(req, res, memberId);
+  const access = await requireAdminMember(req, res, memberId);
   if (!access) return;
 
   const conn = await db.getConnection();
@@ -2963,7 +3310,7 @@ app.post("/api/members/:id/deduct", async (req, res) => {
   if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: "invalid_member_id" });
   if (!Number.isFinite(amount) || amount <= 0)     return res.status(400).json({ error: "invalid_amount", message: "Amount must be a positive number" });
   // 数据归属校验
-  const access = await requireMemberAccess(req, res, memberId);
+  const access = await requireAdminMember(req, res, memberId);
   if (!access) return;
 
   const conn = await db.getConnection();
@@ -3019,7 +3366,7 @@ app.post("/api/members/:id/freeze", async (req, res) => {
   if (!Number.isFinite(amount)   || amount   <= 0) return res.status(400).json({ error: "invalid_amount",  message: "Amount must be a positive number" });
   if (!["freeze","unfreeze"].includes(action))      return res.status(400).json({ error: "invalid_action" });
   // 数据归属校验
-  const access = await requireMemberAccess(req, res, memberId);
+  const access = await requireAdminMember(req, res, memberId);
   if (!access) return;
 
   const conn = await db.getConnection();
@@ -3102,7 +3449,7 @@ app.post("/api/members/:id/reset-password", async (req, res) => {
   if (newPwd.length < 6 || newPwd.length > 64)
     return res.status(400).json({ error: "invalid_password", message: "Password must be 6-64 characters" });
   // 数据归属校验
-  const access = await requireMemberAccess(req, res, memberId);
+  const access = await requireAdminMember(req, res, memberId);
   if (!access) return;
   try {
     const [rows] = await db.query(`SELECT id, account FROM members WHERE id = ? LIMIT 1`, [memberId]);
@@ -3136,7 +3483,7 @@ app.post("/api/members/:id/reset-fund-password", async (req, res) => {
   if (!/^\d{6}$/.test(newPwd))
     return res.status(400).json({ error: "invalid_fund_password", message: "Fund password format is incorrect" });
   // 数据归属校验
-  const access = await requireMemberAccess(req, res, memberId);
+  const access = await requireAdminMember(req, res, memberId);
   if (!access) return;
   try {
     const [rows] = await db.query(`SELECT id, account FROM members WHERE id = ? LIMIT 1`, [memberId]);
@@ -3171,7 +3518,7 @@ app.post("/api/admin/members/:id/force-logout", async (req, res) => {
     if (!Number.isFinite(memberId) || memberId <= 0)
       return res.status(400).json({ error: "invalid_member_id" });
     // 数据归属校验 — 普通员工只能踢自己的客户
-    const access = await requireMemberAccess(req, res, memberId);
+    const access = await requireAdminMember(req, res, memberId);
     if (!access) return;
 
     const [rows] = await db.query(
@@ -3186,6 +3533,10 @@ app.post("/api/admin/members/:id/force-logout", async (req, res) => {
       `UPDATE members SET session_token = ? WHERE id = ?`,
       [newToken, memberId]
     );
+
+    // 立刻掐断这个会员现在开着的 SSE 连接,并通知前端登出。
+    // (不这么做的话,被踢的人还能继续收到余额/信用分推送)
+    pushSessionRevoked(memberId);
 
     const adminId = await lookupAdminId(reviewer);
     await db.query(
@@ -3234,7 +3585,7 @@ app.get("/api/report/inout", async (req, res) => {
         if ((u as any[])[0]) probeMemberId = Number((u as any[])[0].id);
       }
       if (probeMemberId !== null) {
-        const access = await requireMemberAccess(req, res, probeMemberId);
+        const access = await requireAdminMember(req, res, probeMemberId);
         if (!access) return;
       }
       agent_id = String(me.id);
@@ -3380,7 +3731,7 @@ app.get("/api/messages", async (req, res) => {
     if (me.role !== "super") {
       // 若显式指定 member_id,先校验归属 → 否则 403
       if (memberId !== null && Number.isFinite(memberId) && memberId > 0) {
-        const access = await requireMemberAccess(req, res, memberId);
+        const access = await requireAdminMember(req, res, memberId);
         if (!access) return;
       } else {
         // 没指定 member_id 时,scope 限制只能看到自己团队的客户消息 + 全员广播(NULL)
@@ -3461,7 +3812,7 @@ app.delete("/api/messages/:id", async (req, res) => {
         return res.status(403).json({ error: "forbidden", message: "只有超级管理员可以删除全员广播" });
       }
     } else {
-      const access = await requireMemberAccess(req, res, Number(msg.member_id));
+      const access = await requireAdminMember(req, res, Number(msg.member_id));
       if (!access) return;
     }
 
@@ -3500,6 +3851,7 @@ app.get("/api/orders/mine", async (req, res) => {
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
     }
+    if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     const status = req.query.status ? String(req.query.status) : "";
     const statusSql = status ? `AND status = ${mysql.escape(status)}` : "";
     const [rows] = await db.query(
@@ -3569,6 +3921,8 @@ app.post("/api/orders", async (req, res) => {
   if (!Number.isFinite(memberId) || memberId <= 0) {
     return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
   }
+  // 只能用自己名义下单
+  if (!(await requireSelfOrAdmin(req, res, memberId))) return;
   if (!symbol || !/^[A-Z0-9]{4,16}$/.test(symbol)) {
     return res.status(400).json({ error: "invalid_symbol", message: "Invalid trading pair" });
   }
@@ -3731,8 +4085,11 @@ app.get("/api/orders", async (req, res) => {
 //              UPDATE members (balance += settle_amount,frozen 不参与)
 //              INSERT fund_records type='订单结算'
 //   - 返回本次结算的订单 id 数组,前端轮询后用这个数组触发 invalidate
-app.post("/api/orders/settle-due", async (_req, res) => {
+app.post("/api/orders/settle-due", async (req, res) => {
   try {
+    // 这个接口会写库(结算 + 入账),所以匿名不许调。
+    // 前台「持仓」页每 5 秒轮询一次,带着会员自己的 session_token 来。
+    if (!(await requireAnySession(req, res))) return;
     // 1) 查到期订单(带 member 的 invite_code 给 fund_records 用)
     const [dueRows] = await db.query(
       `SELECT o.id, o.agent_id, o.member_id, o.symbol, o.direction, o.amount, o.open_price,
