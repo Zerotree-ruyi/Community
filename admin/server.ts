@@ -449,11 +449,63 @@ function safePwdServer(input: string): string {
 //          ⚠️ 老的 X-Admin-Id 头(任何人都能随便填个 id)默认不再认 ——
 //             只在显式开闸 ALLOW_LEGACY_ADMIN_HEADER=1 时才兼容(本地老脚本用),
 //             生产 .env 里绝对不要设这个变量。
+// ─── admin_sessions 表在不在? ─────────────────────────────────────────────────
+//   迁移(2026_admin_sessions.sql)没跑的时候这张表不存在,查它会直接抛错。
+//   所以这里先探一次,记下结果 —— 不然每个请求都白查一遍还刷错误日志。
+//   十分钟后再探一次:迁移跑完(不用重启后端)就自动切过去了。
+let sessionsTableOk: boolean | null = null;
+let sessionsTableCheckedAt = 0;
+const SESSIONS_RECHECK_MS = 10 * 60 * 1000;
+async function adminSessionsUsable(): Promise<boolean> {
+  if (sessionsTableOk === true) return true;
+  const now = Date.now();
+  if (sessionsTableOk === false && now - sessionsTableCheckedAt < SESSIONS_RECHECK_MS) return false;
+  try {
+    await db.query(`SELECT 1 FROM admin_sessions LIMIT 1`);
+    sessionsTableOk = true;
+    sessionsTableCheckedAt = now;
+  } catch {
+    sessionsTableOk = false;
+    sessionsTableCheckedAt = now;
+    console.warn("[admin_sessions] 表还不存在 —— 先用老字段;跑完迁移会自动生效");
+  }
+  return sessionsTableOk;
+}
+
 async function getCurrentAdmin(req: any): Promise<{ id: number; role: string } | null> {
   // ① 正式方式:Authorization: Bearer <登录令牌>
   const authz = String(req.headers?.authorization ?? "");
   const bearer = /^Bearer\s+(.+)$/i.exec(authz)?.[1]?.trim() ?? "";
   if (bearer) {
+    // ①-1 新表 admin_sessions —— 一个账号可以同时挂多个令牌(多设备同时登录)
+    //      ⚠️ 表可能还没建(迁移没跑),所以先探一下,不通就自动退回老字段。
+    if (await adminSessionsUsable()) {
+      try {
+        const [sRows] = await db.query(
+          `SELECT s.admin_id, s.expires_at, u.role, u.status
+             FROM admin_sessions s
+             JOIN admin_users u ON u.id = s.admin_id
+            WHERE s.token = ? LIMIT 1`,
+          [bearer]
+        );
+        const s = (sRows as any[])[0];
+        if (s) {
+          if (Number(s.status) !== 1) return null;
+          if (s.expires_at && new Date(s.expires_at).getTime() < Date.now()) return null;
+          // 滑动续期 —— 快到期就往后推,只要还在用就永不过期(不会被莫名踢回登录页)
+          if (s.expires_at && new Date(s.expires_at).getTime() - Date.now() < 2 * 60 * 60 * 1000) {
+            const nextExp = new Date(Date.now() + ADMIN_TOKEN_TTL_MS);
+            db.query(`UPDATE admin_sessions SET expires_at = ? WHERE token = ?`, [nextExp, bearer])
+              .catch(() => { /* 续期失败不影响本次请求 */ });
+          }
+          return { id: Number(s.admin_id), role: s.role };
+        }
+        // 表里没有 → 落到老字段兜底(迁移前签发的令牌还能用)
+      } catch (err: any) {
+        console.error("[getCurrentAdmin] 查 admin_sessions 失败", err.message);
+      }
+    }
+    // ①-2 老字段兜底:admin_users.session_token(单值,后登录的会顶掉先登录的)
     const [rows] = await db.query(
       `SELECT id, role, status, session_expires_at FROM admin_users
         WHERE session_token = ? AND session_token <> '' LIMIT 1`,
@@ -949,9 +1001,12 @@ function newSessionToken(): string {
 }
 
 // ─── 后台登录令牌 ────────────────────────────────────────────────────────────
-// 登录时签发,存 admin_users.session_token,之后每个请求用
-// Authorization: Bearer <令牌> 带回来。有效期 12 小时,过期要重新登录。
-const ADMIN_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+// 登录时签发,存 admin_sessions 表(每台设备一行),之后每个请求用
+// Authorization: Bearer <令牌> 带回来。
+//
+// 有效期 30 天 + 滑动续期(快到期自动往后推)—— 只要还在用就永不过期,
+// 不会莫名其妙被踢回登录页。多个设备/多人可以同时登录,互不影响。
+const ADMIN_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 function newAdminToken(): string {
   return (randomUUID() + randomUUID()).replace(/-/g, "");
 }
@@ -1004,6 +1059,20 @@ app.post("/api/admin/login", async (req, res) => {
     loginSucceeded(failKey);
     const token = newAdminToken();
     const expiresAt = new Date(Date.now() + ADMIN_TOKEN_TTL_MS);
+    // 新会话表:每台设备一个令牌,登录新的不会把旧的顶掉
+    //   (以前令牌就存在 admin_users.session_token 一个格子里,后登录的把先登录的顶掉,
+    //    结果就是「后台开着开着数据全空、刷新回到登录页」——列表接口只返回空数组不报错)
+    if (await adminSessionsUsable()) {
+      try {
+        await db.query(
+          `INSERT INTO admin_sessions (token, admin_id, expires_at, ip) VALUES (?, ?, ?, ?)`,
+          [token, admin.id, expiresAt, ip]
+        );
+      } catch (e: any) {
+        console.error("[admin/login] 建会话失败", e.message);
+      }
+    }
+    // 老字段也写一份 —— 迁移前的程序只认这个字段
     await db.query(
       `UPDATE admin_users
           SET last_login_time = NOW(), last_login_ip = ?,
@@ -1032,6 +1101,12 @@ app.post("/api/admin/logout", async (req, res) => {
     const authz = String(req.headers?.authorization ?? "");
     const bearer = /^Bearer\s+(.+)$/i.exec(authz)?.[1]?.trim() ?? "";
     if (bearer) {
+      // 只作废「这一个」会话 —— 同一账号在别的设备上继续用
+      try {
+        await db.query(`DELETE FROM admin_sessions WHERE token = ?`, [bearer]);
+      } catch (e: any) {
+        console.error("[admin/logout] 清会话失败", e.message);
+      }
       await db.query(
         `UPDATE admin_users SET session_token = '', session_expires_at = NULL
           WHERE session_token = ?`,
@@ -1041,6 +1116,29 @@ app.post("/api/admin/logout", async (req, res) => {
     res.json({ ok: true });
   } catch (err: any) {
     console.error("[admin/logout]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// 清掉「本账号」的全部令牌 —— 换了设备 / 想让所有设备重新登一次时用
+//   只清自己的,别的账号不受影响。
+app.post("/api/admin/logout-all", async (req, res) => {
+  try {
+    const me = await getCurrentAdmin(req);
+    if (!me) return deny(res, "no_admin", "未识别管理员");
+    try {
+      const [r] = await db.query(`DELETE FROM admin_sessions WHERE admin_id = ?`, [me.id]);
+      console.log(`[admin/logout-all] 清掉 ${(r as any)?.affectedRows ?? 0} 个会话`);
+    } catch (e: any) {
+      console.error("[admin/logout-all] 清会话失败", e.message);
+    }
+    await db.query(
+      `UPDATE admin_users SET session_token = '', session_expires_at = NULL WHERE id = ?`,
+      [me.id]
+    );
+    res.json({ ok: true, message: "本账号所有设备都已退出,重新登录即可" });
+  } catch (err: any) {
+    console.error("[admin/logout-all]", err);
     res.status(500).json({ error: "server_error", message: err.message });
   }
 });
@@ -1363,14 +1461,30 @@ app.post("/api/admin/change-password", async (req, res) => {
     }
     const newHash = bcrypt.hashSync(String(newPassword), 10);
     // 改完密码顺手把登录令牌换掉 —— 旧令牌(可能已经泄露)立刻失效
+    //   这个账号的所有会话一起作废,只留新签发的这一个
     const newToken = newAdminToken();
     const expiresAt = new Date(Date.now() + ADMIN_TOKEN_TTL_MS);
+    try {
+      await db.query(`DELETE FROM admin_sessions WHERE admin_id = ?`, [id]);
+    } catch (e: any) {
+      console.error("[admin/change-password] 清会话失败", e.message);
+    }
     await db.query(
       `UPDATE admin_users
           SET password_hash = ?, session_token = ?, session_expires_at = ?
         WHERE id = ?`,
       [newHash, newToken, expiresAt, id]
     );
+    if (await adminSessionsUsable()) {
+      try {
+        await db.query(
+          `INSERT INTO admin_sessions (token, admin_id, expires_at, ip) VALUES (?, ?, ?, ?)`,
+          [newToken, id, expiresAt, getClientIp(req)]
+        );
+      } catch (e: any) {
+        console.error("[admin/change-password] 建会话失败", e.message);
+      }
+    }
     return res.json({ ok: true, token: newToken, expires_at: expiresAt.toISOString() });
   } catch (err: any) {
     console.error("[admin/change-password]", err);
@@ -4247,3 +4361,18 @@ setInterval(async () => {
     console.error("[settle-tick]", err.message);
   }
 }, 2000);
+
+// 清理过期后台会话 —— 每 10 分钟扫一次
+//   表还没建的时候直接跳过(迁移没跑),不会刷错误日志。
+setInterval(async () => {
+  if (!(await adminSessionsUsable())) return;
+  try {
+    const [r] = await db.query(
+      `DELETE FROM admin_sessions WHERE expires_at IS NOT NULL AND expires_at < NOW()`
+    );
+    const n = (r as any)?.affectedRows ?? 0;
+    if (n) console.log(`[admin_sessions] 清掉 ${n} 个过期会话`);
+  } catch (err: any) {
+    console.error("[admin_sessions] 清理失败", err.message);
+  }
+}, 10 * 60 * 1000);
