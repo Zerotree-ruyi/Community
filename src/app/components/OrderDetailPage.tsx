@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { directionText } from './OrderCard';
 import { displayCoinName } from '../data/marketConfig';
 import { fmtDateTime } from '../utils/date';
+import { pickEnglish } from '../utils/text';
 
 interface Order {
   id: number;
@@ -59,7 +60,7 @@ export function OrderDetailPage() {
       .then(r => r.json())
       .then(data => {
         if (data.order) setOrder(data.order);
-        else setError(data.message || 'not_found');
+        else setError(pickEnglish(data.message, 'Order not found'));
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));

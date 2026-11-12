@@ -2,10 +2,14 @@
   import { createRoot } from "react-dom/client";
   import App from "./app/App.tsx";
   import "./styles/index.css";
-  import { enableProtection } from "./app/utils/protection";
 
-  // 防 F12 / 右键 / 调试器(生产构建才默认启用,开发模式用 ?protect=1 强制开)
-  enableProtection();
+  // ⚠️ 前台**不启用**页面保护(防 F12 / 右键 / 调试器那套)。
+  //   原因:那套脚本里的「调试器计时陷阱」会在页面切走、手机息屏、或者机器
+  //   卡一下的时候误判成「有人在调试」,直接把整个 body 清空 —— 客户看到的是
+  //   莫名其妙的白屏。防的是随手按 F12,赔上的是真实客户。
+  //   文件还留在 src/app/utils/protection.ts,想开随时 import 就行。
+  //   import { enableProtection } from "./app/utils/protection";
+  //   enableProtection();
 
   // ─── 全局 fetch 包装:自动带上会员自己的 session_token ────────────────────
   //

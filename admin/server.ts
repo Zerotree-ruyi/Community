@@ -538,32 +538,132 @@ async function getCurrentAdmin(req: any): Promise<{ id: number; role: string } |
 //   2. 请求头 `X-Member-Token`   —— 前端 fetch 包装器从 localStorage 显式注入
 //   3. query `?token=`            —— EventSource 不能带 header,只能用这个
 function readMemberToken(req: any): string {
+  return readMemberTokens(req)[0] || "";
+}
+
+// 同上,但把**所有**来源都列出来(按可靠性排序)
+//   ⚠️ 以前只取第一个。cookie 是 HttpOnly、退出登录时也不会被清掉,
+//      万一 cookie 里是上一次会话的旧令牌,而 localStorage 里已经是新的,
+//      就会「拿着旧令牌去查」→ 查不到 → 403「只能查看自己的数据」。
+//      现在几个来源挨个试,只要有一个认了就放行。
+function readMemberTokens(req: any): string[] {
+  const out: string[] = [];
   const cookie = String(req.headers?.cookie ?? "");
   const m = /(?:^|;\s*)session=([^;]+)/.exec(cookie);
   if (m?.[1]) {
-    try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+    try { out.push(decodeURIComponent(m[1])); } catch { out.push(m[1]); }
   }
   const hdr = String(req.headers?.["x-member-token"] ?? "").trim();
-  if (hdr) return hdr;
+  if (hdr) out.push(hdr);
   const q = String(req.query?.token ?? "").trim();
-  if (q) return q;
-  return "";
+  if (q) out.push(q);
+  return Array.from(new Set(out.filter(Boolean)));
+}
+
+// ─── 会员会话表(每台设备一行)────────────────────────────────────────────────
+//
+// 为什么要单独一张表:
+//   以前会员令牌也存在 `members.session_token` 一个格子里 —— 和后台
+//   `admin_users.session_token` 一模一样的毛病:同一个账号在第二台设备登录,
+//   令牌就被覆盖,第一台设备的令牌当场作废。
+//   客户表现就是:手机登着号,又在电脑上登了一次,回到手机上下单 →
+//   403「只能查看自己的数据」,单子根本下不出去。
+//
+// 现在令牌挪到 `member_sessions`,每台设备一行,互不顶掉。
+// 表不存在(迁移没跑)时自动退回老字段,不影响使用。
+const MEMBER_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+let memberSessionsTableOk: boolean | null = null;
+let memberSessionsCheckedAt = 0;
+const MEMBER_SESSIONS_RECHECK_MS = 10 * 60 * 1000;
+
+async function memberSessionsUsable(): Promise<boolean> {
+  if (memberSessionsTableOk === true) return true;
+  const now = Date.now();
+  if (memberSessionsTableOk === false && now - memberSessionsCheckedAt < MEMBER_SESSIONS_RECHECK_MS) return false;
+  try {
+    await db.query(`SELECT 1 FROM member_sessions LIMIT 1`);
+    memberSessionsTableOk = true;
+    memberSessionsCheckedAt = now;
+  } catch {
+    memberSessionsTableOk = false;
+    memberSessionsCheckedAt = now;
+    console.warn("[member_sessions] 表还不存在 —— 先用老字段;跑完迁移会自动生效");
+  }
+  return memberSessionsTableOk;
 }
 
 // 当前登录会员(没有有效 token → null)
-async function getCurrentMember(req: any): Promise<{ id: number } | null> {
-  const token = readMemberToken(req);
-  if (!token) return null;
+async function getCurrentMember(req: any): Promise<{ id: number; token: string } | null> {
+  const tokens = readMemberTokens(req);
+  if (!tokens.length) return null;
+
+  // ① 新表:每台设备一行 → 多设备同时在线,互不顶掉
+  if (await memberSessionsUsable()) {
+    for (const token of tokens) {
+      const [rows] = await db.query(
+        `SELECT member_id FROM member_sessions
+          WHERE token = ? AND (expires_at IS NULL OR expires_at > NOW())
+          LIMIT 1`,
+        [token]
+      );
+      const s = (rows as any[])[0];
+      // 新表在用 → 老字段**不再**兜底
+      //   (不然被后台「强制下线」的会员,拿老令牌还能继续用)
+      if (s) return { id: Number(s.member_id), token };
+    }
+    return null;
+  }
+
+  // ② 老字段兜底(迁移没跑时的旧逻辑)
+  for (const token of tokens) {
+    const [rows] = await db.query(
+      `SELECT id FROM members WHERE session_token = ? AND session_token <> '' LIMIT 1`,
+      [token]
+    );
+    const m = (rows as any[])[0];
+    if (m) return { id: Number(m.id), token };
+  }
+  return null;
+}
+
+// 某个会员的某个令牌现在还有效吗 —— SSE 流用(只能走 query 传 token)
+async function memberSessionValid(memberId: number, token: string): Promise<boolean> {
+  if (!token) return false;
+  if (await memberSessionsUsable()) {
+    const [rows] = await db.query(
+      `SELECT member_id FROM member_sessions
+        WHERE token = ? AND member_id = ?
+          AND (expires_at IS NULL OR expires_at > NOW())
+        LIMIT 1`,
+      [token, memberId]
+    );
+    return (rows as any[]).length > 0;
+  }
   const [rows] = await db.query(
-    `SELECT id FROM members WHERE session_token = ? AND session_token <> '' LIMIT 1`,
-    [token]
+    `SELECT id FROM members WHERE id = ? AND session_token = ? AND session_token <> '' LIMIT 1`,
+    [memberId, token]
   );
-  const m = (rows as any[])[0];
-  return m ? { id: Number(m.id) } : null;
+  return (rows as any[]).length > 0;
+}
+
+// 签发一个新的会员会话(一台设备一行)
+async function issueMemberSession(memberId: number, token: string, ip: string): Promise<void> {
+  if (!(await memberSessionsUsable())) return;
+  try {
+    await db.query(
+      `INSERT INTO member_sessions (token, member_id, expires_at, ip, created_at)
+       VALUES (?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE expires_at = VALUES(expires_at), ip = VALUES(ip)`,
+      [token, memberId, new Date(Date.now() + MEMBER_TOKEN_TTL_MS), ip || null]
+    );
+  } catch (e: any) {
+    console.warn("[member_sessions] 写入失败:", e?.message);
+  }
 }
 
 // 0 行代表越权 — 把所有「非 super」拉黑,强制前端至少要知道当前 admin
-function deny(res: any, code = "forbidden", message = "权限不足") {
+function deny(res: any, code = "forbidden", message = "Permission denied") {
   return res.status(403).json({ error: code, message });
 }
 
@@ -617,7 +717,7 @@ async function requireMemberAccess(req: any, res: any, memberId: number): Promis
     return { agent_id: -1 };   // sentinel:不是后台归属,调用方只判真假,不看这个值
   }
 
-  deny(res, "forbidden", "无权访问该会员数据");
+  deny(res, "forbidden", "You can only access your own data");
   return null;
 }
 
@@ -626,7 +726,7 @@ async function requireMemberAccess(req: any, res: any, memberId: number): Promis
 async function requireAdminMember(req: any, res: any, memberId: number): Promise<{ agent_id: number } | null> {
   const me = await getCurrentAdmin(req);
   if (!me) {
-    deny(res, "no_admin", "该操作仅限管理员");
+    deny(res, "no_admin", "This action is only available to administrators");
     return null;
   }
   const [rows] = await db.query(
@@ -651,7 +751,10 @@ async function requireSelfOrAdmin(req: any, res: any, memberId: number): Promise
   if (me) return true;
   const self = await getCurrentMember(req);
   if (self && self.id === Number(memberId)) return true;
-  deny(res, "forbidden", "只能查看自己的数据");
+  // ⚠️ 这条消息会直接弹到**客户**的下单页上 —— 必须是英文。
+  //    以前写的是中文「只能查看自己的数据」,客户看到下单失败全是中文,
+  //    不知道是自己掉线了还是系统坏了。
+  deny(res, "forbidden", "You can only access your own data. Please sign in again.");
   return false;
 }
 
@@ -667,7 +770,7 @@ async function requireAdmin(req: any, res: any): Promise<{ id: number; role: str
 async function requireAnySession(req: any, res: any): Promise<boolean> {
   if (await getCurrentAdmin(req)) return true;
   if (await getCurrentMember(req)) return true;
-  deny(res, "unauthorized", "请先登录");
+  deny(res, "unauthorized", "Please sign in first");
   return false;
 }
 
@@ -764,6 +867,8 @@ app.post("/api/auth/register", async (req, res) => {
          clientIps || null, clientIps || null]
       );
       const insertId = (result as any).insertId;
+      // 每台设备一个会话(新表);迁移没跑时自动忽略,不影响注册
+      await issueMemberSession(insertId, sessionToken, clientIps);
       const [rows] = await db.query(
         `SELECT ${SAFE_USER_COLS} FROM members WHERE id = ?`,
         [insertId]
@@ -844,6 +949,9 @@ app.post("/api/auth/login", async (req, res) => {
         WHERE id = ?`,
       [sessionToken, clientIps || null, clientIps || null, user.id]
     );
+    // ★ 每台设备一个会话 —— 手机上登着的号不会被电脑上的登录顶掉。
+    //   (老字段 members.session_token 仍然照写,给老逻辑 / 后台展示兜底)
+    await issueMemberSession(user.id, sessionToken, clientIps);
     user.session_token = sessionToken;
     // 脱敏:不返回 password_hash
     delete user.password_hash;
@@ -915,6 +1023,16 @@ app.post("/api/auth/change-password", async (req, res) => {
       `UPDATE members SET password_hash = ?, session_token = ? WHERE id = ?`,
       [newHash, newToken, memberId]
     );
+    // 改密码 → 这个会员的所有旧会话作废,只留新令牌这一条
+    //   (新表存在时:删掉旧行 + 写新行;表不存在时老字段已经覆盖,效果一样)
+    if (await memberSessionsUsable()) {
+      try {
+        await db.query(`DELETE FROM member_sessions WHERE member_id = ?`, [memberId]);
+      } catch (e: any) {
+        console.warn("[member_sessions] 清理失败:", e?.message);
+      }
+    }
+    await issueMemberSession(memberId, newToken, getClientIps(req));
 
     return res.json({ ok: true, account: m.account, session_token: newToken });
   } catch (err: any) {
@@ -2214,6 +2332,11 @@ app.get("/api/auth/me", async (req, res) => {
     );
     const user = (rows as any[])[0];
     if (!user) return res.status(404).json({ error: "not_found", message: "User does not exist" });
+    // ⚠️ 返回**本次请求带的那个**令牌,不是 members.session_token 那一格。
+    //   多设备同时在线时,members.session_token 存的是「最后一次登录」的令牌,
+    //   前台一比对就以为「我在别的设备登录过」→ 把自己踢下线 → 下单失败。
+    const me = await getCurrentMember(req);
+    if (me) user.session_token = me.token;
     res.json({ user });
   } catch (err: any) {
     res.status(500).json({ error: "server_error", message: err.message });
@@ -2248,8 +2371,11 @@ app.get("/api/members/:id/stream", async (req, res) => {
   //    会员没有 token(老账号)时等于谁来都能订阅,改一下 URL 里的 id
   //    就能看到别人的余额/信用分。现在要求严格相等,老账号拿不到流,
   //    前台会自动退回 15 秒轮询,功能不受影响。
+  //
+  // ★ 现在走 memberSessionValid():多设备同时在线时每台设备各有一枚令牌,
+  //   都能订上自己的流(以前只有「最后登录的那台」订得上)。
   const token = String(req.query.token ?? "");
-  if (!member.session_token || token !== member.session_token) {
+  if (!(await memberSessionValid(memberId, token))) {
     return res.status(401).json({ error: "invalid_token", message: "Session token mismatch" });
   }
 
@@ -3647,6 +3773,16 @@ app.post("/api/admin/members/:id/force-logout", async (req, res) => {
       `UPDATE members SET session_token = ? WHERE id = ?`,
       [newToken, memberId]
     );
+    // ★ 新表在用时,光旋转 members.session_token 不够 ——
+    //   member_sessions 里那几行(每台设备一行)还活着,被踢的人照样能下单。
+    //   这里把该会员的所有会话行删掉,才是真的「强制下线」。
+    if (await memberSessionsUsable()) {
+      try {
+        await db.query(`DELETE FROM member_sessions WHERE member_id = ?`, [memberId]);
+      } catch (e: any) {
+        console.warn("[member_sessions] 强制下线清理失败:", e?.message);
+      }
+    }
 
     // 立刻掐断这个会员现在开着的 SSE 连接,并通知前端登出。
     // (不这么做的话,被踢的人还能继续收到余额/信用分推送)
@@ -4374,5 +4510,20 @@ setInterval(async () => {
     if (n) console.log(`[admin_sessions] 清掉 ${n} 个过期会话`);
   } catch (err: any) {
     console.error("[admin_sessions] 清理失败", err.message);
+  }
+}, 10 * 60 * 1000);
+
+// 清理过期会员会话 —— 每 10 分钟扫一次
+//   表还没建的时候直接跳过(迁移没跑),不会刷错误日志。
+setInterval(async () => {
+  if (!(await memberSessionsUsable())) return;
+  try {
+    const [r] = await db.query(
+      `DELETE FROM member_sessions WHERE expires_at IS NOT NULL AND expires_at < NOW()`
+    );
+    const n = (r as any)?.affectedRows ?? 0;
+    if (n) console.log(`[member_sessions] 清掉 ${n} 个过期会话`);
+  } catch (err: any) {
+    console.error("[member_sessions] 清理失败", err.message);
   }
 }, 10 * 60 * 1000);

@@ -18,6 +18,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 import { fmtDateTime } from '../utils/date';
+import { hasCJK, pickEnglish } from '../utils/text';
 
 interface FundRecord {
   id:         number;
@@ -79,7 +80,10 @@ export function FundRecordsPage() {
     try {
       const res = await fetch(`/api/funds/mine?member_id=${user.id}&limit=200`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      if (!res.ok) {
+        // 后端 message 可能是中文 → 换成英文,别让中文漏到客户眼前
+        throw new Error(pickEnglish(data.message, data.error || `HTTP ${res.status}`));
+      }
       setRecords(data.data || []);
     } catch (e: any) {
       setErrMsg(e.message || t('fundRecords.loadError'));
@@ -250,7 +254,10 @@ export function FundRecordsPage() {
                     </div>
                   </div>
                 </div>
-                {r.notes && (
+                {/* 备注是后台写的,可能是中文(「客户转账充值」之类)。
+                    前台是给客户看的 —— 带中文的备注就不显示了,
+                    记录类型那一行已经说明了是什么钱。 */}
+                {r.notes && !hasCJK(r.notes) && (
                   <div className="text-xs text-gray-500 border-t border-gray-700 pt-2 mt-2">
                     {t('fundRecords.notes')}: {r.notes}
                   </div>

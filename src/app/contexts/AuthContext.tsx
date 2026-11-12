@@ -50,6 +50,8 @@ interface AuthContextValue {
   logout: () => void;
   clearError: () => void;
   refresh: () => Promise<void>;
+  /** 检查本地会话是否还有效(不跳转、不清空)—— 注册页用 */
+  checkSession: () => Promise<'valid' | 'invalid' | 'unknown'>;
 }
 
 const STORAGE_KEY = 'exchange_user';
@@ -183,11 +185,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch(`/api/auth/me?member_id=${current.id}`);
       const data = await res.json().catch(() => ({} as any));
       const fresh: User | undefined = data?.user;
-      if (!fresh) return;
 
-      // 401/403 = 身份对不上(令牌过期、被踢、或者老账号压根没有 session_token)。
-      //   这时候不能继续用本地的旧数据装正常 —— 让用户重新登录一次,
-      //   重新登录会发一个全新的 session_token,之后一切照旧。
+      // ⚠️ 401/403 的判断必须在 `if (!fresh) return` **之前**!
+      //   以前顺序写反了 —— 后端 401 的响应体里没有 user 字段,`fresh` 是
+      //   undefined,直接 return 掉了,401 分支永远走不到。
+      //   结果「令牌已经失效」这件事被悄悄吞掉:页面看着还是登录中,
+      //   但每个接口都 403,客户点下单只看到一句报错,卡在里面出不来。
       if (res.status === 401 || res.status === 403) {
         persist(null);
         try {
@@ -199,6 +202,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try { window.location.assign('/login'); } catch { /* ignore */ }
         return;
       }
+
+      if (!fresh) return;
 
       // 会话令牌被旋转 → 后台踢人
       if (current.session_token && fresh.session_token &&
@@ -228,6 +233,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       persist(fresh);
     } catch {
       // 静默失败,保留本地状态
+    }
+  }, []);
+
+  // 只想知道「本地这个会话还活着吗」,不想被跳转走 —— 注册页用。
+  //   返回:
+  //     'valid'   —— 会话还有效
+  //     'invalid' —— 令牌过期/被踢 → 本地那份是脏数据,应该清掉
+  //     'unknown' —— 网络问题/后端没响应 → 先别动本地状态
+  //
+  // ⚠️ 以前注册页只看 localStorage 里有没有 `exchange_user`,有就跳回主页。
+  //    结果:客户之前登过号(令牌后来失效了),localStorage 里那份脏数据还在,
+  //    他想再注册一个号 → 一进 /register 就被弹回主页,注册表单根本看不到。
+  const checkSession = useCallback(async (): Promise<'valid' | 'invalid' | 'unknown'> => {
+    let current: User | null = null;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) current = JSON.parse(raw) as User;
+    } catch { /* ignore */ }
+    if (!current?.id) return 'invalid';
+    try {
+      const res = await fetch(`/api/auth/me?member_id=${current.id}`);
+      if (res.status === 401 || res.status === 403) return 'invalid';
+      const data = await res.json().catch(() => ({} as any));
+      const fresh: User | undefined = data?.user;
+      if (!fresh) return 'unknown';
+      if (current.session_token && fresh.session_token &&
+          current.session_token !== fresh.session_token) {
+        return 'invalid';
+      }
+      if (fresh.status === 0) return 'invalid';
+      persist(fresh);
+      return 'valid';
+    } catch {
+      return 'unknown';
     }
   }, []);
 
@@ -329,7 +368,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id, user?.session_token]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, register, logout, clearError, refresh }}>
+    <AuthContext.Provider value={{ user, loading, error, login, register, logout, clearError, refresh, checkSession }}>
       {children}
     </AuthContext.Provider>
   );

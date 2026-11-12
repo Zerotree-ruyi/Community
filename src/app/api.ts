@@ -6,6 +6,8 @@
  * 抛 ApiError 时带 .code / .status
  */
 
+import { pickEnglish } from './utils/text';
+
 export class ApiError extends Error {
   code: string;
   status: number;
@@ -28,9 +30,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* ignore */ }
   if (!res.ok) {
+    // ⚠️ 后端 message 可能是中文(以前「只能查看自己的数据」就是),
+    //    前台是给客户看的,不能出现中文 → 有中文就换成英文兜底。
     throw new ApiError(
       data?.error || `HTTP_${res.status}`,
-      data?.message || data?.error || `HTTP ${res.status}`,
+      pickEnglish(data?.message, data?.error || `Request failed (${res.status})`),
       res.status
     );
   }

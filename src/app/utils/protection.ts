@@ -45,13 +45,20 @@ function hijack(): void {
   }, 800);
 }
 
-/** 调试器计时陷阱:两次取时间的间隔超过 10ms,说明中间被断点暂停了 */
+/**
+ * 调试器计时陷阱:两次取时间的间隔超过 10ms,说明中间被断点暂停了。
+ *
+ * ⚠️ 注意:**不要**在这里清空 body。
+ *    手机息屏、页面切走、机器卡一下,主线程都可能被打断 10ms 以上 →
+ *    误判成「有人在调试」→ 客户页面直接白屏。
+ *    现在只提示,不销毁页面。
+ */
 function debuggerTripped(): boolean {
   const t0 = new Date().getTime();
   const dt = new Date().getTime() - t0;
   if (dt > 10) {
     try {
-      document.body.innerHTML = '';
+      hijack();
     } catch {
       /* ignore */
     }
@@ -89,28 +96,19 @@ export function enableProtection(): void {
 
   // ── 3. 调试器陷阱 ─────────────────────────────────────────────────────────
   // 平时不会触发(两次取时间挨着,差值 0ms);
-  // 一旦在断点上停住,差值就 > 10ms → 判定被调试 → 清空页面。
+  // 一旦在断点上停住,差值就 > 10ms → 判定被调试 → 提示一下。
+  // ⚠️ 只查一次,不循环 —— 之前那个 while 循环在主线程被打断时会一直转,
+  //    页面直接卡死。
   const armDebuggerTrap = () => {
     setTimeout(() => {
-      while (debuggerTripped()) {
-        /* 反复检查,直到没被暂停 */
-      }
+      debuggerTripped();
     }, 500);
   };
   window.addEventListener('blur', armDebuggerTrap);
 
-  // ── 4. 窗口尺寸变化 = 有人在开/关 DevTools → 尝试关掉窗口 ─────────────────
-  // 注意:普通标签页里 window.close() 是无效的(浏览器只允许脚本开的窗口自关),
-  // 所以这一条只是"能关就关",真正起作用的是上面 1~3 条。
-  const initH = window.innerHeight;
-  const initW = window.innerWidth;
-  window.addEventListener('resize', () => {
-    if (window.innerHeight !== initH || window.innerWidth !== initW) {
-      try {
-        window.close();
-      } catch {
-        /* ignore */
-      }
-    }
-  });
+  // ── 4. 窗口尺寸变化 ───────────────────────────────────────────────────────
+  // ⚠️ 以前这里是「尺寸变了就 window.close()」。
+  //    手机上地址栏收起/展开、键盘弹出、旋转屏幕都会改 innerHeight →
+  //    用户滑一下页面就可能被「关掉」。这在手机上是真的会发生的。
+  //    现在不关了,防 F12 靠上面第 1 条就够了。
 }

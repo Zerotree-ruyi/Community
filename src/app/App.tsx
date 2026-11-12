@@ -48,17 +48,13 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function RedirectIfLoggedIn({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (user) navigate('/', { replace: true });
-  }, [user, navigate]);
-
-  if (user) return null;
-  return <>{children}</>;
-}
+// ⚠️ 登录页 / 注册页**不再**套 RedirectIfLoggedIn(已删除)。
+//    以前套了以后:localStorage 里有一份旧数据(令牌早失效了)→
+//    RedirectIfLoggedIn 直接 return null → 子页面根本不挂载 →
+//    子页面里那句「校验一下会话」也就永远不会跑 →
+//    客户一进 /register 或 /login 就被弹回主页,注册不了也登不进。
+//    现在由 LoginPage / RegisterPage 自己用 useSessionRedirect() 判断,
+//    而且判断的是「服务器认不认这个令牌」,不是「本地有没有这份数据」。
 
 // Main app content with routing
 function AppContent() {
@@ -94,8 +90,8 @@ function AppContent() {
         <Route path="/order/:id" element={<RequireAuth><OrderDetailPage /></RequireAuth>} />
 
         {/* 公共路由 */}
-        <Route path="/login" element={<RedirectIfLoggedIn><LoginPage /></RedirectIfLoggedIn>} />
-        <Route path="/register" element={<RedirectIfLoggedIn><RegisterPage /></RedirectIfLoggedIn>} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         <Route path="/language" element={<LanguageSelectPage />} />
         <Route path="/regulatory" element={<RegulatoryPage />} />
 

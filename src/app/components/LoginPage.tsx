@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useSessionRedirect } from '../hooks/useSessionRedirect';
 import { LanguageSelector } from './LanguageSelector';
 import { StrongPasswordField } from './StrongPasswordField';
 import loginDecoration from 'figma:asset/bd06caca71bbe78500a161706bf8396c06cd33e7.png';
@@ -10,7 +11,7 @@ import loginDecoration from 'figma:asset/bd06caca71bbe78500a161706bf8396c06cd33e
 export function LoginPage() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { login, loading, error, clearError, user } = useAuth();
+  const { login, loading, error, clearError } = useAuth();
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
@@ -24,10 +25,10 @@ export function LoginPage() {
     } catch { return null; }
   });
 
-  // 已登录直接跳走
-  useEffect(() => {
-    if (user) navigate('/', { replace: true });
-  }, [user, navigate]);
+  // 已登录直接跳走 —— 但要先问服务器这份会话还活着吗。
+  //   以前只看本地那份数据,令牌早就失效的客户一进登录页就被弹回主页,
+  //   于是「登录 → 跳主页 → 接口 403」死循环,永远登不进去。
+  useSessionRedirect();
 
   // 切换 tab / 输入时清掉错误
   useEffect(() => () => clearError(), [clearError]);

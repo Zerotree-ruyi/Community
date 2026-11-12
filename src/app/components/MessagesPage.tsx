@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, Mail, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { fmtDateTime } from "../utils/date";
+import { pickEnglish } from '../utils/text';
 
 interface Message {
   id:         number;
@@ -41,7 +42,7 @@ export function MessagesPage() {
     try {
       const r = await fetch(`/api/messages/mine?member_id=${user.id}&limit=100`);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || d.message || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(pickEnglish(d.message, d.error || `HTTP ${r.status}`));
       setItems(d.data || []);
     } catch (e: any) {
       setErr(e.message || "Failed to load");

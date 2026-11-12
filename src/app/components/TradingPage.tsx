@@ -6,6 +6,7 @@ import { KLineChart } from './KLineChart';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { displayCoinName } from '../data/marketConfig';
+import { pickEnglish } from '../utils/text';
 
 // 周期选项 (时间 + 收益率 — 写死对应关系,选周期即定收益率)
 const PERIODS: { duration: string; returnRate: string; value: number }[] = [
@@ -187,7 +188,18 @@ export function TradingPage() {
           setBannedDialog(true);
           setSubmitError(null);
         } else {
-          setSubmitError(data.message || 'Order failed');
+          // ⚠️ 后端 message 以前会带中文(「只能查看自己的数据」),
+          //    直接弹给客户就成了「下单的时候有中文」。
+          //    这里统一过一道 pickEnglish():有中文就换成英文兜底。
+          const fallback = data?.error === 'forbidden'
+            ? 'Your session has expired. Please sign in again and place your order.'
+            : 'Order failed. Please try again.';
+          setSubmitError(pickEnglish(data?.message, fallback));
+          // 会话对不上(令牌过期 / 被踢)→ 让 AuthContext 去清掉这份脏状态,
+          //   下一次 refresh 会把客户送回登录页,不用卡在这儿反复失败。
+          if (data?.error === 'forbidden' || r.status === 401 || r.status === 403) {
+            refresh().catch(() => {});
+          }
         }
         return;
       }

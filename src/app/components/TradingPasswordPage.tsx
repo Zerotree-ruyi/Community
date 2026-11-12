@@ -21,6 +21,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { safePwd } from '../utils/safePwd';
 import { StrongPasswordField } from './StrongPasswordField';
+import { pickEnglish } from '../utils/text';
 
 type Status =
   | { kind: 'idle' }
@@ -121,7 +122,7 @@ export function TradingPasswordPage() {
           data?.error === 'same_password'         ? 'New fund password cannot be the same as the old one' :
           data?.error === 'account_disabled'      ? 'This account has been disabled' :
           data?.error === 'not_found'             ? 'Member does not exist' :
-          data?.message || `Update failed (${r.status})`;
+          pickEnglish(data?.message, `Update failed (${r.status})`);
         // 后端说"要给旧密码",说明前面把"已设置"判断错了 ——
         // 把旧密码输入框显示出来,让用户能继续改
         if (data?.error === 'missing_old_password') setHasFundPassword(true);

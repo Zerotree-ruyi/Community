@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useSessionRedirect } from '../hooks/useSessionRedirect';
 import { LanguageSelector } from './LanguageSelector';
 import { StrongPasswordField } from './StrongPasswordField';
 import registerDecoration from 'figma:asset/a79a50fec1d78cc9ef81aef367ae50acbe40700d.png';
@@ -10,7 +11,7 @@ import registerDecoration from 'figma:asset/a79a50fec1d78cc9ef81aef367ae50acbe40
 export function RegisterPage() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { register, loading, error, clearError, user } = useAuth();
+  const { register, loading, error, clearError } = useAuth();
 
   const [account, setAccount] = useState('');
   const [email, setEmail] = useState('');
@@ -20,9 +21,10 @@ export function RegisterPage() {
   const [inviteCode, setInviteCode] = useState('');
   const [showLanguageSelector, setShowLanguageSelector] = useState(false);
 
-  useEffect(() => {
-    if (user) navigate('/', { replace: true });
-  }, [user, navigate]);
+  // 「已经登了就回主页」—— 但要先问服务器这份会话还活着吗。
+  //   以前是 `if (user) navigate('/')`,只看本地那份数据,
+  //   令牌早就失效的客户一进注册页就被弹回主页,注册表单根本看不到。
+  useSessionRedirect();
 
   useEffect(() => () => clearError(), [clearError]);
 

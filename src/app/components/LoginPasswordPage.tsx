@@ -17,6 +17,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { pickEnglish } from '../utils/text';
 
 type Status =
   | { kind: 'idle' }
@@ -94,7 +95,7 @@ export function LoginPasswordPage() {
           data?.error === 'same_password'       ? 'New password cannot be the same as the old one' :
           data?.error === 'account_disabled'    ? 'This account has been disabled' :
           data?.error === 'not_found'           ? 'Member does not exist' :
-          data?.message || `Update failed (${r.status})`;
+          pickEnglish(data?.message, `Update failed (${r.status})`);
         setStatus({ kind: 'error', message: msg });
         return;
       }
