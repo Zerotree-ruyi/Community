@@ -24,4 +24,4 @@ logs/
 /.opencode-skills/
 
 # 本地 mock 数据(只为看效果,不入库)
-admin/.mock/
+.mock/
