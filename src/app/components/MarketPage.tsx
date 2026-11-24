@@ -210,8 +210,9 @@ function PriceOnly({ price, changePercent, positive, loading }: {
   loading: boolean;
 }) {
   const formatPrice = (p: number) => {
+    // 不带千分位逗号 —— 和提现页的金额显示保持一致(65000.25 而不是 65,000.25)
     if (p >= 1000) {
-      return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return p.toFixed(2);
     } else if (p >= 1) {
       return p.toFixed(2);
     } else {

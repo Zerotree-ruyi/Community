@@ -158,7 +158,7 @@ export function LoanPage() {
                     onClick={() => setAmount(amt.toString())}
                     className="bg-[#1a1a1a] text-white py-3 rounded-xl text-sm hover:bg-[#2a2a2a] transition-colors"
                   >
-                    {amt.toLocaleString()}
+                    {amt}
                   </button>
                 ))}
               </div>

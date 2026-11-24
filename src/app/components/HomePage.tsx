@@ -58,14 +58,15 @@ function useRealtimePrice(symbol: string) {
       const changePercent = parseFloat(data.P);
       const isPositive = priceChange >= 0;
 
-      setPrice(currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      // 不带千分位逗号(65000.25 而不是 65,000.25)
+      setPrice(currentPrice.toFixed(2));
       setChange(`${isPositive ? '+' : ''}${changePercent.toFixed(2)}%`);
       setPositive(isPositive);
 
       // 设置买卖价（加上/减去点差）
       const spread = currentPrice * 0.0001; // 0.01% 点差
-      setSellPrice((currentPrice - spread).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-      setBuyPrice((currentPrice + spread).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      setSellPrice((currentPrice - spread).toFixed(2));
+      setBuyPrice((currentPrice + spread).toFixed(2));
 
       // 排序用原始数值
       setRawPrice(currentPrice);
@@ -242,7 +243,7 @@ export function HomePage() {
 
   // 把原始数字格式化成字符串 (同 MarketPage PriceOnly)
   const formatPrice = (p: number) => {
-    if (p >= 1000) return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (p >= 1000) return p.toFixed(2);
     if (p >= 1) return p.toFixed(2);
     return p.toFixed(4);
   };

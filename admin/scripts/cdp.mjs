@@ -8,6 +8,7 @@
 
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const CHROME = process.env.CHROME_PATH
   || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -15,8 +16,11 @@ const CHROME = process.env.CHROME_PATH
 const PORT = Number(process.env.CDP_PORT || 9333);
 // ⚠️ 不要放 /tmp —— macOS 会周期性清空 /tmp,Chrome profile 和截图都会被抹掉。
 //    统一放 admin/.cdp-cache/ 下(gitignore 里已排除)。
+// ⚠️ 必须用 fileURLToPath,不能用 url.pathname ——
+//    仓库路径里带中文(「源码」),pathname 会变成 %E6%BA%90%E7%A0%81 这种编码,
+//    结果文件全写到桌面上一个莫名其妙的新目录里。
 const CACHE_DIR = process.env.CDP_CACHE_DIR
-  || new URL('../.cdp-cache/', import.meta.url).pathname;
+  || fileURLToPath(new URL('../.cdp-cache/', import.meta.url));
 const PROFILE = `${CACHE_DIR}profile-${PORT}`;  // 端口不同的实例用不同 profile,避免抢锁
 export const SHOT_DIR = process.env.SHOT_DIR || `${CACHE_DIR}shots`;
 // Chrome 视系统配置可能只绑 IPv6([::1])或只绑 IPv4(127.0.0.1),两个都探

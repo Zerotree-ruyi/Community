@@ -112,7 +112,8 @@ export function TradingPage() {
       const positive = changePercent >= 0;
 
       setCurrentPriceRaw(currentPriceValue);
-      setCurrentPrice(currentPriceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      // 不带千分位逗号(65000.25 而不是 65,000.25)
+      setCurrentPrice(currentPriceValue.toFixed(2));
       setPriceChange(`${positive ? '+' : ''}${changePercent.toFixed(2)}%`);
       setPriceChangeValue(`${positive ? '+' : ''}${changeValue.toFixed(2)}`);
       setIsPositive(positive);

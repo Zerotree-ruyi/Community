@@ -227,7 +227,7 @@ export function KLineChart({ symbol }: Props) {
         </div>
         {latest != null && (
           <div className={`bg-gray-900/80 px-2 py-0.5 rounded ${changeColor} font-mono`}>
-            {latest.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {latest.toFixed(2)}
           </div>
         )}
       </div>

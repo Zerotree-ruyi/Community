@@ -4100,7 +4100,9 @@ function OrderListPage() {
                       <div style={{ color: "#888" }}>赔率 {o.return_rate ?? "-"}%</div>
                     </td>
                     <td className="num-cell" style={{ fontSize: 12 }}>
-                      <div>投注 {fmtAmount(o.amount)}</div>
+                      <div style={o.status === "持仓中" ? { fontWeight: 800 } : undefined}>
+                        投注 {fmtAmount(o.amount)}
+                      </div>
                       {o.status === "已平仓" && (
                         <div style={{ color: isWin ? "#4caf50" : isLose ? "#f44336" : "#888" }}>
                           {isWin ? "+" : ""}{fmtAmount(o.profit)}
@@ -4108,10 +4110,22 @@ function OrderListPage() {
                       )}
                     </td>
                     <td>
-                      <Badge
-                        label={o.status}
-                        color={o.status === "持仓中" ? "orange" : o.status === "已平仓" ? "green" : "gray"}
-                      />
+                      {/* 持仓中的订单 = 黑底白字 + 超粗体,跟「已平仓」的浅绿 badge 形成强对比,
+                          扫一眼就能看出还有多少单没结(用户要求:加粗加黑,好确认) */}
+                      {o.status === "持仓中" ? (
+                        <span style={{
+                          display: "inline-flex", alignItems: "center",
+                          padding: "3px 10px", borderRadius: 10,
+                          background: "#1a1a1a", color: "#fff",
+                          fontSize: 12, fontWeight: 900, letterSpacing: 0.5,
+                          whiteSpace: "nowrap",
+                        }}>{o.status}</span>
+                      ) : (
+                        <Badge
+                          label={o.status}
+                          color={o.status === "已平仓" ? "green" : "gray"}
+                        />
+                      )}
                     </td>
                     <td style={{ fontSize: 12 }}>
                       <span style={{ color: o.direction === "涨" ? "#f44336" : "#4caf50", fontWeight: 600 }}>

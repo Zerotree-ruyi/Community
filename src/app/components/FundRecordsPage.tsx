@@ -18,6 +18,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 import { fmtDateTime } from '../utils/date';
+import { fmtMoney } from '../utils/money';
 import { hasCJK, pickEnglish } from '../utils/text';
 
 interface FundRecord {
@@ -41,7 +42,8 @@ function classify(type: string): 'in' | 'withdraw' | 'order' | 'other' {
 }
 
 function fmt(n: number | string): string {
-  return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // 统一格式:两位小数、无逗号(1310887.00)
+  return fmtMoney(n);
 }
 
 // DB type string → i18n key

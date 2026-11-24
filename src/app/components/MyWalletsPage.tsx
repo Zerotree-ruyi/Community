@@ -421,8 +421,9 @@ function WalletEditModal({
             <>
               <Field label="Bank Name *"        value={bankName}  onChange={setBankName}  />
               <Field label="Holder's Name *"    value={holder}    onChange={setHolder}    />
-              <Field label="A/C No *"           value={cardNo}    onChange={setCardNo}    noPaste />
-              <Field label="IFSC Code"          value={ifsc}      onChange={setIfsc}      noPaste />
+              {/* 卡号 / IFSC:一次只准进 1 位 —— 粘贴整串只能进去第一位 */}
+              <Field label="A/C No *"           value={cardNo}    onChange={setCardNo}    oneCharPerInput />
+              <Field label="IFSC Code"          value={ifsc}      onChange={setIfsc}      oneCharPerInput />
               <Field label="Bank Branch"        value={branch}    onChange={setBranch}    />
               <Field label="ID Number"          value={idNumber}  onChange={setIdNumber}  />
               <Field label="Remark"             value={bankNotes} onChange={setBankNotes} textarea />
@@ -456,24 +457,44 @@ function WalletEditModal({
 
 // ─── 表单原子 ────────────────────────────────────────────────────────────────
 function Field({
-  label, value, onChange, placeholder, textarea = false, maxLength, noPaste = false,
-}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; textarea?: boolean; maxLength?: number; noPaste?: boolean; }) {
-  // noPaste:阻止用户粘贴(常用于 A/C No / IFSC — 必须手输避免脚本批量灌数据)
-  const blockPaste = (e: React.ClipboardEvent) => {
-    if (noPaste) {
-      e.preventDefault();
-    }
-  };
+  label, value, onChange, placeholder, textarea = false, maxLength, oneCharPerInput = false,
+}: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string;
+  textarea?: boolean; maxLength?: number;
+  /**
+   * oneCharPerInput:一次只准进 1 位。
+   *   用来做「不能整串粘贴灌进来」—— 卡号 / IFSC 必须一个一个手敲。
+   *   规则:如果这次变化比原来多了不止 1 个字符(粘贴 / 拖拽 / 自动填充),
+   *        就只保留**新增的第一个**字符,其余丢掉。
+   *   手动一个一个敲不受影响。
+   */
+  oneCharPerInput?: boolean;
+}) {
   // 后端可能返回 null/undefined(老数据),input 必须是字符串才不会警告
   const safeValue = value ?? '';
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value ?? "";
+    if (!oneCharPerInput) { onChange(v); return; }
+    const prev = safeValue;
+    if (v.length > prev.length + 1) {
+      // 一次进来多个字符 → 找出新增的位置,只取那一位
+      let i = 0;
+      while (i < prev.length && prev[i] === v[i]) i++;
+      onChange(prev.slice(0, i) + (v[i] ?? ""));
+      return;
+    }
+    onChange(v);
+  };
+
   return (
     <div>
       <label className="mb-1 block text-xs text-white/60">{label}</label>
       {textarea ? (
-        <textarea value={safeValue} onChange={(e) => onChange(e.target.value)} onPaste={blockPaste} placeholder={placeholder} maxLength={maxLength}
+        <textarea value={safeValue} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} maxLength={maxLength}
           rows={2} className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-amber-500 focus:outline-none" />
       ) : (
-        <input value={safeValue} onChange={(e) => onChange(e.target.value)} onPaste={blockPaste} placeholder={placeholder} maxLength={maxLength}
+        <input value={safeValue} onChange={handleChange} placeholder={placeholder} maxLength={maxLength}
           className="w-full rounded-md border border-white/15 bg-black/30 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-amber-500 focus:outline-none" />
       )}
     </div>

@@ -5,10 +5,10 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect, useCallback } from 'react';
 import { getSupportLink } from '../config';
+import { fmtMoney } from '../utils/money';
 
-function fmtAmt(n: number | string | undefined | null): string {
-  return Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+// 金额统一走 fmtMoney:固定两位小数、不带千分位逗号(1310887.00)
+const fmtAmt = fmtMoney;
 
 export function ProfilePage() {
   const { t } = useLanguage();
