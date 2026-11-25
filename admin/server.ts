@@ -71,7 +71,7 @@ app.use((req, res, next) => {
     res.setHeader(
       "Access-Control-Allow-Headers",
       String(req.headers["access-control-request-headers"]
-        || "Content-Type, Authorization, X-Member-Token, X-Admin-Id")
+        || "Content-Type, Authorization, X-Admin-Id")
     );
     res.setHeader("Access-Control-Max-Age", "600");
   }
@@ -400,7 +400,7 @@ app.get("/api/support-link", async (req, res) => {
 // ─── Auth (注册 / 登录) ──────────────────────────────────────────────────────
 const SAFE_USER_COLS = `id, account, status, balance, frozen, credit, win_mode, tag,
   ban_order, ban_withdraw, agent_id, invite_code, type, kyc_status, register_time,
-  first_login_time, first_login_ip, last_login_time, last_login_ip, session_token`;
+  first_login_time, first_login_ip, last_login_time, last_login_ip`;
 
 const RE_ACCOUNT    = /^[A-Za-z0-9_一-龥]{4,20}$/;
 // 登录密码:前端用 safePwd 混淆,实际提交是 14 位 base62 随机串。
@@ -533,31 +533,26 @@ async function getCurrentAdmin(req: any): Promise<{ id: number; role: string } |
 
 // ─── 会员会话 ────────────────────────────────────────────────────────────────
 // 前台会员靠「自己的 session_token」证明身份,而不是靠一个裸的 member_id 参数。
-// 取 token 的三个来源(按可靠性排序):
-//   1. HttpOnly cookie `session` —— 注册/登录时后端已经种下,浏览器自动带
-//   2. 请求头 `X-Member-Token`   —— 前端 fetch 包装器从 localStorage 显式注入
-//   3. query `?token=`            —— EventSource 不能带 header,只能用这个
+//
+// ★ 只认 HttpOnly cookie `session`(注册/登录时后端种下,浏览器自动带)。
+//   以前还有两个来源,都去掉了:
+//     - 请求头 `X-Member-Token` —— 前端要在 localStorage 存令牌再手工注入,
+//       令牌就等于明文躺在 localStorage 里,换个前端/换台设备就容易对不上,
+//       表现出来就是「下单 403,提示重新登录」。
+//     - query `?token=` —— 会把令牌写进 nginx access log 和浏览器历史。
+//   现在前端什么都不用管:登录一次,cookie 一直带着,直到 30 天过期。
+//   EventSource 同源也会带 cookie,所以实时推送那条流同样不用传令牌。
 function readMemberToken(req: any): string {
-  return readMemberTokens(req)[0] || "";
-}
-
-// 同上,但把**所有**来源都列出来(按可靠性排序)
-//   ⚠️ 以前只取第一个。cookie 是 HttpOnly、退出登录时也不会被清掉,
-//      万一 cookie 里是上一次会话的旧令牌,而 localStorage 里已经是新的,
-//      就会「拿着旧令牌去查」→ 查不到 → 403「只能查看自己的数据」。
-//      现在几个来源挨个试,只要有一个认了就放行。
-function readMemberTokens(req: any): string[] {
-  const out: string[] = [];
   const cookie = String(req.headers?.cookie ?? "");
   const m = /(?:^|;\s*)session=([^;]+)/.exec(cookie);
-  if (m?.[1]) {
-    try { out.push(decodeURIComponent(m[1])); } catch { out.push(m[1]); }
-  }
-  const hdr = String(req.headers?.["x-member-token"] ?? "").trim();
-  if (hdr) out.push(hdr);
-  const q = String(req.query?.token ?? "").trim();
-  if (q) out.push(q);
-  return Array.from(new Set(out.filter(Boolean)));
+  if (!m?.[1]) return "";
+  try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+}
+
+// 兼容老名字(以前是复数、返回数组)—— 现在只有一个来源,永远 0 或 1 个。
+function readMemberTokens(req: any): string[] {
+  const t = readMemberToken(req);
+  return t ? [t] : [];
 }
 
 // ─── 会员会话表(每台设备一行)────────────────────────────────────────────────
@@ -873,10 +868,10 @@ app.post("/api/auth/register", async (req, res) => {
         `SELECT ${SAFE_USER_COLS} FROM members WHERE id = ?`,
         [insertId]
       );
-      // 同时下发 HttpOnly cookie(给浏览器/扩展看到的是乱码强密码,JSON 里仍有 session_token 供现有逻辑读取)
+      // ★ 下发 HttpOnly cookie —— 会员身份就靠它(前端不用存任何令牌)
       res.cookie('session', sessionToken, {
         httpOnly: true,
-        secure: process.env.COOKIE_SECURE === '1',   // 只有真上了 HTTPS 才开;纯 HTTP 下开了浏览器会拒收
+        secure: process.env.COOKIE_SECURE === '1',
         sameSite: 'lax',
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 天
       });
@@ -912,7 +907,7 @@ app.post("/api/auth/login", async (req, res) => {
       `SELECT id, account, nickname, phone, email, gender, remark,
               status, password_hash, balance, frozen, credit,
               tag, direction, ban_order, ban_withdraw, agent_id, invite_code, type,
-              kyc_status, register_time, session_token
+              kyc_status, register_time
          FROM members WHERE account = ? LIMIT 1`,
       [account]
     );
@@ -952,13 +947,15 @@ app.post("/api/auth/login", async (req, res) => {
     // ★ 每台设备一个会话 —— 手机上登着的号不会被电脑上的登录顶掉。
     //   (老字段 members.session_token 仍然照写,给老逻辑 / 后台展示兜底)
     await issueMemberSession(user.id, sessionToken, clientIps);
-    user.session_token = sessionToken;
-    // 脱敏:不返回 password_hash
+    // 脱敏:不返回 password_hash,也不返回 session_token
+    //   (令牌只在 HttpOnly cookie 里,前端不需要也不该拿到)
     delete user.password_hash;
-    // 同时下发 HttpOnly cookie(给浏览器/扩展看到的是乱码强密码,JSON 里仍有 session_token 供现有逻辑读取)
+    delete user.session_token;
+    // ★ 下发 HttpOnly cookie —— 会员身份就靠它。
+    //   secure 只有真上了 HTTPS 才开(纯 HTTP 下开了浏览器会拒收 → 会员直接掉线)
     res.cookie('session', sessionToken, {
       httpOnly: true,
-      secure: process.env.COOKIE_SECURE === '1',   // 只有真上了 HTTPS 才开;纯 HTTP 下开了浏览器会拒收
+      secure: process.env.COOKIE_SECURE === '1',
       sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 天
     });
@@ -1017,7 +1014,8 @@ app.post("/api/auth/change-password", async (req, res) => {
     // 改密码 → 顺手旋转 session_token。
     //   理由:密码都改了,别人偷到的旧 token 也该立刻失效,否则
     //   "改密码"这个动作等于没做安全动作。
-    //   新 token 回给前端存起来,本人不会被踢下线。
+    //   ★ 新令牌由后端**重新种一次 cookie** —— 前端不用存任何东西,
+    //     本人也不会被踢下线(cookie 换新了,浏览器自动带上)。
     const newToken = newSessionToken();
     await db.query(
       `UPDATE members SET password_hash = ?, session_token = ? WHERE id = ?`,
@@ -1033,10 +1031,55 @@ app.post("/api/auth/change-password", async (req, res) => {
       }
     }
     await issueMemberSession(memberId, newToken, getClientIps(req));
+    res.cookie('session', newToken, {
+      httpOnly: true,
+      secure: process.env.COOKIE_SECURE === '1',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
 
-    return res.json({ ok: true, account: m.account, session_token: newToken });
+    return res.json({ ok: true, account: m.account });
   } catch (err: any) {
     console.error("[auth/change-password]", err);
+    res.status(500).json({ error: "server_error", message: err.message });
+  }
+});
+
+// 会员登出 —— 清掉 cookie 和这条会话
+// POST /api/auth/logout
+//
+// ★ 身份改成只认 HttpOnly cookie 之后,登出必须**由后端清 cookie**。
+//   以前令牌在 localStorage,前端自己删掉就行;现在 cookie 是 HttpOnly,
+//   JS 删不了,不调这个接口的话「退出登录」只是界面变了,cookie 还在,
+//   别人拿到这个浏览器就能直接用。
+app.post("/api/auth/logout", async (req, res) => {
+  try {
+    const token = readMemberToken(req);
+    if (token && (await memberSessionsUsable())) {
+      try {
+        await db.query(`DELETE FROM member_sessions WHERE token = ?`, [token]);
+      } catch (e: any) {
+        console.warn("[member_sessions] 登出清理失败:", e?.message);
+      }
+    }
+    // 老字段兜底也清一下
+    if (token) {
+      try {
+        await db.query(
+          `UPDATE members SET session_token = '' WHERE session_token = ?`,
+          [token]
+        );
+      } catch { /* ignore */ }
+    }
+    // 清 cookie(同名 + 空值 = 覆盖掉浏览器里那份)
+    res.clearCookie('session', {
+      httpOnly: true,
+      secure: process.env.COOKIE_SECURE === '1',
+      sameSite: 'lax',
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[auth/logout]", err);
     res.status(500).json({ error: "server_error", message: err.message });
   }
 });
@@ -2320,23 +2363,22 @@ app.get("/api/auth/me", async (req, res) => {
     if (!Number.isFinite(memberId) || memberId <= 0) {
       return res.status(400).json({ error: "invalid_member_id", message: "Missing member_id" });
     }
-    // 只能查自己的(带 session_token),后台也能查
+    // 只能查自己的(带 session cookie),后台也能查
     if (!(await requireSelfOrAdmin(req, res, memberId))) return;
     const [rows] = await db.query(
       `SELECT id, account, nickname, phone, email, gender, remark,
               status, balance, frozen, credit, win_mode, tag, direction,
               ban_order, ban_withdraw, agent_id, invite_code, type,
-              kyc_status, register_time, session_token
+              kyc_status, register_time
          FROM members WHERE id = ? LIMIT 1`,
       [memberId]
     );
     const user = (rows as any[])[0];
     if (!user) return res.status(404).json({ error: "not_found", message: "User does not exist" });
-    // ⚠️ 返回**本次请求带的那个**令牌,不是 members.session_token 那一格。
-    //   多设备同时在线时,members.session_token 存的是「最后一次登录」的令牌,
-    //   前台一比对就以为「我在别的设备登录过」→ 把自己踢下线 → 下单失败。
-    const me = await getCurrentMember(req);
-    if (me) user.session_token = me.token;
+    // ⚠️ 不再返回 session_token —— 令牌只在 HttpOnly cookie 里,
+    //    前端不需要、也不应该拿到它。
+    //    「被后台强制下线」的检测改成靠这里返回 403(会话没了 → requireSelfOrAdmin 失败),
+    //    前台收到 403 就清掉登录态跳回登录页。
     res.json({ user });
   } catch (err: any) {
     res.status(500).json({ error: "server_error", message: err.message });
@@ -2364,17 +2406,20 @@ app.get("/api/members/:id/stream", async (req, res) => {
     return res.status(404).json({ error: "not_found", message: "Member does not exist" });
   }
 
-  // 会话校验:必须带上这个会员自己的 session_token,且要完全对得上。
-  // (EventSource 不能自定义 header,所以 token 只能走 query)
+  // 会话校验:必须带上这个会员自己的 session cookie,而且要完全对得上。
+  //
+  // ★ EventSource 不能自定义 header —— 但同源请求浏览器**会**自动带 cookie,
+  //   所以直接用 cookie 认人就行,不用再往 URL 上挂 ?token=
+  //   (挂 URL 的坏处:令牌会进 nginx access log、进浏览器历史)
   //
   // ⚠️ 以前是 `if (member.session_token && token !== member.session_token)` ——
   //    会员没有 token(老账号)时等于谁来都能订阅,改一下 URL 里的 id
   //    就能看到别人的余额/信用分。现在要求严格相等,老账号拿不到流,
   //    前台会自动退回 15 秒轮询,功能不受影响。
   //
-  // ★ 现在走 memberSessionValid():多设备同时在线时每台设备各有一枚令牌,
+  // ★ memberSessionValid():多设备同时在线时每台设备各有一枚令牌,
   //   都能订上自己的流(以前只有「最后登录的那台」订得上)。
-  const token = String(req.query.token ?? "");
+  const token = readMemberToken(req);
   if (!(await memberSessionValid(memberId, token))) {
     return res.status(401).json({ error: "invalid_token", message: "Session token mismatch" });
   }

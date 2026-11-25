@@ -60,8 +60,9 @@ const req = (method, path, body, headers = {}) => new Promise((resolve) => {
     let buf = '';
     res.on('data', c => buf += c);
     res.on('end', () => {
-      try { resolve({ status: res.statusCode, body: JSON.parse(buf) }); }
-      catch { resolve({ status: res.statusCode, body: buf }); }
+      const out = { status: res.statusCode, body: buf, headers: res.headers };
+      try { out.body = JSON.parse(buf); } catch { /* 保持字符串 */ }
+      resolve(out);
     });
   });
   r.on('timeout', () => { r.destroy(); resolve({ status: 0, body: { error: 'timeout' } }); });
@@ -71,6 +72,18 @@ const req = (method, path, body, headers = {}) => new Promise((resolve) => {
 });
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 从响应的 Set-Cookie 里抠出 session=xxx(会员身份就靠这个 cookie)
+function sessionCookie(res) {
+  const sc = res?.headers?.['set-cookie'];
+  if (!sc) return '';
+  const raw = Array.isArray(sc) ? sc : [sc];
+  for (const c of raw) {
+    const m = /(?:^|;\s*)session=([^;]+)/.exec(String(c));
+    if (m) return 'session=' + m[1];
+  }
+  return '';
+}
 
 const main = async () => {
   console.log('═══════════════════════════════════════════════════');
@@ -123,9 +136,10 @@ const main = async () => {
   console.log('\n══ C. 会员登录 ══');
   const memberLogin = await req('POST', '/api/auth/login', { account: testAccount, password: 'Pass1234' });
   log(memberLogin.status === 200 && memberLogin.body?.user?.id === memberId, 'C1 会员登录', memberLogin.body?.user?.account);
-  // 会员身份 = 自己的 session_token(登录会刷新它,每次重新登录都要更新)
-  let memberToken = memberLogin.body?.user?.session_token;
-  const memberAuth = () => ({ 'X-Member-Token': memberToken });
+  // ★ 会员身份 = HttpOnly cookie(后端登录时种下的)。
+  //   前端不再存令牌,后端也不再返回令牌 —— 只有 cookie 这一条路。
+  let memberCookie = sessionCookie(memberLogin);
+  const memberAuth = () => (memberCookie ? { Cookie: memberCookie } : {});
 
   const wrongPwd = await req('POST', '/api/auth/login', { account: testAccount, password: 'WRONG' });
   log(wrongPwd.status === 401 && wrongPwd.body?.error === 'wrong_password', 'C2 错密码应 401 wrong_password', wrongPwd.body);
@@ -193,8 +207,8 @@ const main = async () => {
   // 下单只扣 balance,**不动 frozen**(frozen 只表示后台手动冻结的金额,
   // 见 migrations/2026_frozen_admin_only.sql)
   const memberInfo = await req('POST', '/api/auth/login', { account: testAccount, password: 'Pass1234' });
-  // 每次重新登录都会刷新 session_token —— 旧的立刻失效,必须换成新的
-  memberToken = memberInfo.body?.user?.session_token;
+  // 每次重新登录都会换一枚新 cookie —— 旧的失效,必须换成新的
+  memberCookie = sessionCookie(memberInfo);
   log(Number(memberInfo.body?.user?.balance) === 9900 && Number(memberInfo.body?.user?.frozen) === 0,
     'F4 下单扣 balance 100,可用 9900,frozen 不变(仍为 0)',
     { balance: memberInfo.body?.user?.balance, frozen: memberInfo.body?.user?.frozen });
@@ -212,7 +226,7 @@ const main = async () => {
 
   // 重新查余额
   const memberAfter = await req('POST', '/api/auth/login', { account: testAccount, password: 'Pass1234' });
-  memberToken = memberAfter.body?.user?.session_token;
+  memberCookie = sessionCookie(memberAfter);
   console.log(`  结算后: balance=${memberAfter.body?.user?.balance}, frozen=${memberAfter.body?.user?.frozen}`);
 
   // ─── 阶段 G:提现申请 + 审核 ───
@@ -308,7 +322,7 @@ const main = async () => {
 
   // 会员带自己的令牌读自己的数据 —— 必须 200(不能把正常功能也堵了)
   const selfRead = await req('GET', `/api/funds/mine?member_id=${memberId}`, null, memberAuth());
-  log(selfRead.status === 200, 'K5 会员带自己的令牌读自己数据应 200', { status: selfRead.status });
+  log(selfRead.status === 200, 'K5 会员带自己的 cookie 读自己数据应 200', { status: selfRead.status });
 
   // 带正确令牌的后台 —— 必须 200
   const adminOk = await req('GET', `/api/members/${memberId}`, null, superAuth);
@@ -331,20 +345,20 @@ const main = async () => {
     log(r.status === 403, `K7 会员给自己${name}应 403`, { status: r.status, body: r.body });
   }
 
-  // ---- 实时推送(SSE)必须校验 token ----
+  // ---- 实时推送(SSE)必须校验 cookie ----
   //   以前"会员没有 session_token 时谁来都能订阅",改个 URL 里的 id
   //   就能看别人的余额/信用分。
-  const sseNoToken = await req('GET', `/api/members/${memberId}/stream`);
-  log(sseNoToken.status === 401, 'K8 SSE 无 token 订阅应 401', { status: sseNoToken.status });
+  const sseNoCookie = await req('GET', `/api/members/${memberId}/stream`);
+  log(sseNoCookie.status === 401, 'K8 SSE 无 cookie 订阅应 401', { status: sseNoCookie.status });
 
-  const sseBadToken = await req('GET', `/api/members/${memberId}/stream?token=deadbeef`);
-  log(sseBadToken.status === 401, 'K9 SSE 错 token 订阅应 401', { status: sseBadToken.status });
+  const sseBadCookie = await req('GET', `/api/members/${memberId}/stream`, null, { Cookie: 'session=deadbeef' });
+  log(sseBadCookie.status === 401, 'K9 SSE 错 cookie 订阅应 401', { status: sseBadCookie.status });
 
-  // ---- 强制下线后旧 token 必须失效 ----
+  // ---- 强制下线后旧 cookie 必须失效 ----
   const kick = await req('POST', `/api/admin/members/${memberId}/force-logout`, { reviewer: 'admin' }, superAuth);
   log(kick.status === 200, 'K10 后台强制下线应 200', { status: kick.status, body: kick.body });
   const afterKick = await req('GET', `/api/funds/mine?member_id=${memberId}`, null, memberAuth());
-  log(afterKick.status === 403, 'K11 强制下线后旧 token 应失效 403', { status: afterKick.status });
+  log(afterKick.status === 403, 'K11 强制下线后旧 cookie 应失效 403', { status: afterKick.status });
 
 
   try {

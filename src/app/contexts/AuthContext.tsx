@@ -2,10 +2,13 @@
  * AuthContext — 前台用户认证状态
  *
  * 设计:
- *  - 启动时从 localStorage 读取上次登录的用户
+ *  - 启动时从 localStorage 读取上次登录的用户(只存资料,不存令牌)
  *  - login / register 调 /api/auth/* 接口
  *  - 成功后把 user 对象写回 localStorage
  *  - 失败时把后端的 error 字段(如 'account_taken')放进 error 状态供 UI 翻译
+ *
+ * ★ 身份靠 HttpOnly cookie `session`(后端种,浏览器自动带),前端不碰令牌。
+ *   所以「会话失效」只能靠接口返回 401/403 来发现 —— 这也是唯一发现方式。
  */
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
@@ -28,8 +31,6 @@ export interface User {
   type: string;
   kyc_status: string;
   register_time: string;
-  /** 会话令牌 — 后台「下线」会旋转此值,本地发现不一致即自动登出 */
-  session_token?: string;
 }
 
 export interface RegisterPayload {
@@ -104,20 +105,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  // 会员自己改密码 → 后端会旋转 session_token,组件会把新 token 写进 localStorage
-  //   这里监听一下,把内存里的 user 也换掉(SSE 才会用新 token 重新订阅)
-  useEffect(() => {
-    const onRotated = () => {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return;
-        setUser(JSON.parse(raw) as User);
-      } catch { /* ignore */ }
-    };
-    window.addEventListener('exchange_session_rotated', onRotated);
-    return () => window.removeEventListener('exchange_session_rotated', onRotated);
-  }, []);
-
   const persist = (u: User | null) => {
     setUser(u);
     if (u) localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
@@ -167,13 +154,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(() => persist(null), []);
+  // 登出 —— 必须让后端清 cookie(cookie 是 HttpOnly,前端删不了)。
+  //   失败也照样清本地状态,不能因为网络问题卡在登录页。
+  const logout = useCallback(() => {
+    void fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    persist(null);
+  }, []);
 
   const clearError = useCallback(() => setError(null), []);
 
   // 从服务器刷新当前用户(余额、信誉等)
-  //   - 若返回的 session_token 与本地不一致 → 视为被后台强制下线,自动登出
-  //   - 若 status=0 (账号被禁用) → 也自动登出
+  //   - 401/403 → 会话没了(过期 / 被后台强制下线)→ 自动登出
+  //   - status=0 (账号被禁用) → 也自动登出
   const refresh = useCallback(async () => {
     let current: User | null = null;
     try {
@@ -189,14 +181,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // ⚠️ 401/403 的判断必须在 `if (!fresh) return` **之前**!
       //   以前顺序写反了 —— 后端 401 的响应体里没有 user 字段,`fresh` 是
       //   undefined,直接 return 掉了,401 分支永远走不到。
-      //   结果「令牌已经失效」这件事被悄悄吞掉:页面看着还是登录中,
+      //   结果「会话已经失效」这件事被悄悄吞掉:页面看着还是登录中,
       //   但每个接口都 403,客户点下单只看到一句报错,卡在里面出不来。
+      //   ★ 现在身份只认 HttpOnly cookie,没有令牌可比对了 ——
+      //     「被后台强制下线」= 后端删了这条会话 → 这个接口返回 403。
       if (res.status === 401 || res.status === 403) {
         persist(null);
         try {
           sessionStorage.setItem(
             'exchange_kicked_msg',
-            'Your session has expired. Please sign in again.'
+            'Your session has expired or you have been logged out by an administrator. Please sign in again.'
           );
         } catch { /* ignore */ }
         try { window.location.assign('/login'); } catch { /* ignore */ }
@@ -205,20 +199,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!fresh) return;
 
-      // 会话令牌被旋转 → 后台踢人
-      if (current.session_token && fresh.session_token &&
-          current.session_token !== fresh.session_token) {
-        persist(null);
-        try {
-          sessionStorage.setItem(
-            'exchange_kicked_msg',
-            'Your account has been logged in on another device or forcibly logged out by an administrator'
-          );
-        } catch { /* ignore */ }
-        // 跳转登录页
-        try { window.location.assign('/login'); } catch { /* ignore */ }
-        return;
-      }
 
       // 账号被禁用
       if (fresh.status === 0 && current.status !== 0) {
@@ -258,10 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json().catch(() => ({} as any));
       const fresh: User | undefined = data?.user;
       if (!fresh) return 'unknown';
-      if (current.session_token && fresh.session_token &&
-          current.session_token !== fresh.session_token) {
-        return 'invalid';
-      }
+      // 身份只认 cookie,没有令牌可比对 —— 401/403 已经在上面判过了
       if (fresh.status === 0) return 'invalid';
       persist(fresh);
       return 'valid';
@@ -293,10 +270,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let source: EventSource | null = null;
     let closed = false;
 
-    // EventSource 不能自定义 header,会话令牌只能走 query
-    const token = user?.session_token ? `?token=${encodeURIComponent(user.session_token)}` : '';
+    // ★ 不用带令牌 —— 身份靠 HttpOnly cookie,EventSource 同源会自动带。
+    //   (以前往 URL 上挂 ?token=,令牌会进 nginx access log 和浏览器历史)
     try {
-      source = new EventSource(`/api/members/${memberId}/stream${token}`);
+      source = new EventSource(`/api/members/${memberId}/stream`);
     } catch {
       source = null;
     }
@@ -365,7 +342,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       closed = true;
       try { source?.close(); } catch { /* ignore */ }
     };
-  }, [user?.id, user?.session_token]);
+  }, [user?.id]);
 
   return (
     <AuthContext.Provider value={{ user, loading, error, login, register, logout, clearError, refresh, checkSession }}>
