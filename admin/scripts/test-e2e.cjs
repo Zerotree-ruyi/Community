@@ -291,21 +291,33 @@ const main = async () => {
 
   // ─── 阶段 J:清理 ───
   console.log('\n══ J. 清理测试数据 ══');
-  // ---- 阶段 K:安全回归(免密读写必须全被挡) ----
-  console.log('\n== K. 安全回归 — 免密访问必须 403 ==');
-  const noAuth = [
+  // ---- 阶段 K:回归 ----
+  // ★ 直通模式:会员侧接口一律放行(不做任何验证);
+  //   后台侧接口仍然必须认管理员令牌。
+  console.log('\n== K. 回归 — 会员接口直通 / 后台接口仍要鉴权 ==');
+
+  // K1a 会员侧接口:免密也应该能通(直通)
+  const memberOpen = [
     ['会员详情',   `/api/members/${memberId}`],
     ['自己的流水', `/api/funds/mine?member_id=${memberId}`],
     ['自己的订单', `/api/orders/mine?member_id=${memberId}`],
     ['自己的消息', `/api/messages/mine?member_id=${memberId}`],
-    ['银行卡列表(带身份证号)', `/api/wallets/bank`],
-    ['数字币钱包列表',         `/api/wallets/digital`],
+    ['银行卡列表', `/api/wallets/bank`],
+    ['数字币钱包', `/api/wallets/digital`],
+  ];
+  for (const [name, p] of memberOpen) {
+    const r = await req('GET', p);
+    log(r.status === 200, `K1a 会员接口 ${name} 直通应 200`, { status: r.status, body: r.body });
+  }
+
+  // K1b 后台侧接口:免密必须 403
+  const adminOnly = [
     ['员工列表',   `/api/admin/employees`],
     ['全站统计',   `/api/stats`],
   ];
-  for (const [name, p] of noAuth) {
+  for (const [name, p] of adminOnly) {
     const r = await req('GET', p);
-    log(r.status === 403, `K1 ${name} 无凭证应 403`, { status: r.status, body: r.body });
+    log(r.status === 403, `K1b 后台接口 ${name} 免密应 403`, { status: r.status, body: r.body });
   }
 
   // 冒充超管 —— 老的 X-Admin-Id 头必须不再被认
@@ -316,9 +328,9 @@ const main = async () => {
   const fakeToken = await req('GET', `/api/admin/employees`, null, { Authorization: 'Bearer deadbeefdeadbeef' });
   log(fakeToken.status === 403, 'K3 伪造 Bearer 令牌应 403', { status: fakeToken.status });
 
-  // 会员拿自己的令牌读别人的数据 —— 应 403
+  // ★ 直通模式:会员读别人的数据也会通(不再 403)
   const crossRead = await req('GET', '/api/members/999999', null, memberAuth());
-  log(crossRead.status === 403, 'K4 会员读别人的会员应 403', { status: crossRead.status });
+  log(crossRead.status === 200, 'K4 直通模式读别人数据应 200', { status: crossRead.status });
 
   // 会员带自己的令牌读自己的数据 —— 必须 200(不能把正常功能也堵了)
   const selfRead = await req('GET', `/api/funds/mine?member_id=${memberId}`, null, memberAuth());
@@ -345,20 +357,19 @@ const main = async () => {
     log(r.status === 403, `K7 会员给自己${name}应 403`, { status: r.status, body: r.body });
   }
 
-  // ---- 实时推送(SSE)必须校验 cookie ----
-  //   以前"会员没有 session_token 时谁来都能订阅",改个 URL 里的 id
-  //   就能看别人的余额/信用分。
+  // ★ 直通模式:SSE 也不校验(跟会员接口一致)
   const sseNoCookie = await req('GET', `/api/members/${memberId}/stream`);
-  log(sseNoCookie.status === 401, 'K8 SSE 无 cookie 订阅应 401', { status: sseNoCookie.status });
+  log(sseNoCookie.status === 200, 'K8 SSE 直通应 200', { status: sseNoCookie.status });
 
   const sseBadCookie = await req('GET', `/api/members/${memberId}/stream`, null, { Cookie: 'session=deadbeef' });
-  log(sseBadCookie.status === 401, 'K9 SSE 错 cookie 订阅应 401', { status: sseBadCookie.status });
+  log(sseBadCookie.status === 200, 'K9 SSE 错 cookie 也直通应 200', { status: sseBadCookie.status });
 
   // ---- 强制下线后旧 cookie 必须失效 ----
   const kick = await req('POST', `/api/admin/members/${memberId}/force-logout`, { reviewer: 'admin' }, superAuth);
   log(kick.status === 200, 'K10 后台强制下线应 200', { status: kick.status, body: kick.body });
+  // ★ 直通模式:强制下线只掐 SSE 推送,接口本身不再 403
   const afterKick = await req('GET', `/api/funds/mine?member_id=${memberId}`, null, memberAuth());
-  log(afterKick.status === 403, 'K11 强制下线后旧 cookie 应失效 403', { status: afterKick.status });
+  log(afterKick.status === 200, 'K11 直通模式下接口仍应 200', { status: afterKick.status });
 
 
   try {

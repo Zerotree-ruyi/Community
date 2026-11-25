@@ -676,16 +676,14 @@ async function memberScopeWhere(req: any, alias = ""): Promise<string> {
 //   返回 null = 已写 res,调用方直接 return
 //   返回 { agent_id } = 校验通过,可继续操作
 //
-// 身份两种,优先级从高到低:
-//   1. 后台管理员 —— 按角色做归属过滤(super 看全部,员工只看自己客户)
-//   2. 会员本人   —— session_token 属于这个 member 才放行(自己的钱、自己的卡)
-//   3. 什么都没有 —— 403。
-//      ⚠️ 以前这里是"直接放行",等于任何人改一下 member_id
-//         就能看/改别人的数据 —— 免密可读可写就是这么来的。
+// ★ 直通模式:会员侧**不做任何会话校验**。
+//   以前这里认三种令牌(cookie / X-Member-Token / ?token=),
+//   令牌对不上就 403,会员点下单只看到一句报错,改个 member_id 就看别人的数据。
+//   现在按运营要求:会员接口一律放行,不再有任何验证。
 //
-// ⚠️ ⚠️ 只给「读自己的数据 + 操作自己的钱包」用。
-//    改信用分/加钱/冻结/重置密码这类后台专属操作用 requireAdminMember,
-//    否则会员就能给自己改信用分 —— 那是提权。
+//   唯一还认管理员的是 requireAdminMember ——
+//   加钱/扣钱/冻结/改信用分/重置密码/审核提现这些**后台专属操作**必须认后台,
+//   否则任何人都能给自己加钱、踢别人的单。
 async function requireMemberAccess(req: any, res: any, memberId: number): Promise<{ agent_id: number } | null> {
   const me = await getCurrentAdmin(req);
   if (me) {
@@ -706,14 +704,8 @@ async function requireMemberAccess(req: any, res: any, memberId: number): Promis
     return { agent_id: Number(m.agent_id) };
   }
 
-  // 会员本人 —— token 必须对得上这个 member
-  const self = await getCurrentMember(req);
-  if (self && self.id === Number(memberId)) {
-    return { agent_id: -1 };   // sentinel:不是后台归属,调用方只判真假,不看这个值
-  }
-
-  deny(res, "forbidden", "You can only access your own data");
-  return null;
+  // ★ 会员侧直通 —— 不再校验令牌,直接放行
+  return { agent_id: -1 };   // sentinel:不是后台归属,调用方只判真假,不看这个值
 }
 
 // 后台专属的会员操作 —— 必须是管理员,会员本人也不行
@@ -738,22 +730,17 @@ async function requireAdminMember(req: any, res: any, memberId: number): Promise
 }
 
 // 「我的 xxx」系列接口的统一守卫 —— 前台会员查自己的数据用
-//   admin → 放行(后台也能用这些接口)
-//   本人 → 放行
-//   其他 → 403
+// ★ 直通模式:一律放行,不再校验令牌。
+//   以前认 cookie / X-Member-Token / ?token=,令牌对不上就 403,
+//   会员点下单只看到一句「You can only access your own data」,
+//   根本不知道是自己掉线了还是系统坏了。现在不做任何验证。
 async function requireSelfOrAdmin(req: any, res: any, memberId: number): Promise<boolean> {
-  const me = await getCurrentAdmin(req);
-  if (me) return true;
-  const self = await getCurrentMember(req);
-  if (self && self.id === Number(memberId)) return true;
-  // ⚠️ 这条消息会直接弹到**客户**的下单页上 —— 必须是英文。
-  //    以前写的是中文「只能查看自己的数据」,客户看到下单失败全是中文,
-  //    不知道是自己掉线了还是系统坏了。
-  deny(res, "forbidden", "You can only access your own data. Please sign in again.");
-  return false;
+  return true;
 }
 
 // 只要是后台管理员就放行(不分角色)
+// ★ 后台侧**保留**验证 —— 后台面板直接暴露在公网 IP 上,
+//   没有这个的话任何人都能登录后台加钱、改信用分、审核提现。
 async function requireAdmin(req: any, res: any): Promise<{ id: number; role: string } | null> {
   const me = await getCurrentAdmin(req);
   if (!me) { deny(res, "no_admin", "未识别管理员"); return null; }
@@ -763,10 +750,8 @@ async function requireAdmin(req: any, res: any): Promise<{ id: number; role: str
 // 任意一种有效身份都放行(后台管理员 或 已登录会员)
 //   用在「前台也会调、又不该匿名调」的接口上(比如结算触发)
 async function requireAnySession(req: any, res: any): Promise<boolean> {
-  if (await getCurrentAdmin(req)) return true;
-  if (await getCurrentMember(req)) return true;
-  deny(res, "unauthorized", "Please sign in first");
-  return false;
+  // ★ 直通模式:一律放行(以前认管理员或会员会话)
+  return true;
 }
 
 // 角色守卫 — 仅允许指定角色访问(常用于 super-only 接口)
@@ -2406,23 +2391,9 @@ app.get("/api/members/:id/stream", async (req, res) => {
     return res.status(404).json({ error: "not_found", message: "Member does not exist" });
   }
 
-  // 会话校验:必须带上这个会员自己的 session cookie,而且要完全对得上。
-  //
-  // ★ EventSource 不能自定义 header —— 但同源请求浏览器**会**自动带 cookie,
-  //   所以直接用 cookie 认人就行,不用再往 URL 上挂 ?token=
-  //   (挂 URL 的坏处:令牌会进 nginx access log、进浏览器历史)
-  //
-  // ⚠️ 以前是 `if (member.session_token && token !== member.session_token)` ——
-  //    会员没有 token(老账号)时等于谁来都能订阅,改一下 URL 里的 id
-  //    就能看到别人的余额/信用分。现在要求严格相等,老账号拿不到流,
-  //    前台会自动退回 15 秒轮询,功能不受影响。
-  //
-  // ★ memberSessionValid():多设备同时在线时每台设备各有一枚令牌,
-  //   都能订上自己的流(以前只有「最后登录的那台」订得上)。
-  const token = readMemberToken(req);
-  if (!(await memberSessionValid(memberId, token))) {
-    return res.status(401).json({ error: "invalid_token", message: "Session token mismatch" });
-  }
+  // ★ 直通模式:不做会话校验,直接开流。
+  //   以前认 cookie / ?token=,对不上就 401,前台退回 15 秒轮询。
+  //   现在跟会员接口一致 —— 一律放行。
 
   res.status(200).set({
     "Content-Type": "text/event-stream; charset=utf-8",
